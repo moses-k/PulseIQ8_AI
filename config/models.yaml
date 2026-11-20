@@ -1,0 +1,90 @@
+# PulseIQ8_AI — model ecosystem and routing.
+# ${VAR:-default} is read from the environment, so keys never live in this file.
+# A model whose name is empty is skipped, so a cloud model stays off until its key / model name is set.
+
+service:
+  api_keys: ["${PULSEIQ8_AI_KEYS:-change-me-pulseiq8-ai}"]   # callers send X-Api-Key (or Authorization: Bearer)
+  # local_only  – never call a cloud provider
+  # local_first – try local (Ollama) models first, cloud only as a fallback, never for sensitive requests
+  # cloud_ok    – use the order written below
+  data_policy: ${PULSEIQ8_DATA_POLICY:-local_first}
+  request_timeout_seconds: ${PULSEIQ8_TIMEOUT:-300}
+
+router:
+  # true  = pick the tier and model for each request (rules · fallback · escalation)
+  # false = NO routing: every request goes to the one model in `fixed` below (no fallback)
+  enabled: ${PULSEIQ8_ROUTING:-true}
+  fixed:
+    provider: ${PULSEIQ8_FIXED_PROVIDER:-ollama}      # ollama | anthropic | openai | gemini
+    model: "${PULSEIQ8_FIXED_MODEL:-deepseek-coder-v2:16b}"
+    context: ${PULSEIQ8_FIXED_CONTEXT:-16384}
+  # ask the Fast model to classify a request when the rules are unsure (adds ~1 s)
+  llm_classifier: ${PULSEIQ8_LLM_CLASSIFIER:-false}
+  # on a failed / invalid answer try the next tier up (fast → general → reasoning, coding → reasoning)
+  escalate: true
+  # a model that failed 3 times in a row is skipped for this many seconds (down / rate-limited)
+  breaker_seconds: 60
+
+providers:
+  ollama:
+    type: ollama
+    base_url: ${OLLAMA_BASE_URL:-http://localhost:11434}
+  anthropic:
+    type: anthropic
+    base_url: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+    api_key: ${ANTHROPIC_API_KEY:-}
+  openai:
+    type: openai
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com}
+    api_key: ${OPENAI_API_KEY:-}
+  gemini:
+    type: gemini
+    base_url: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
+    api_key: ${GEMINI_API_KEY:-}
+
+tiers:
+  fast:
+    title: Fast AI
+    summary: Low latency • Local • Lightweight — quick answers, summaries, classification, intent, simple writing, chat titles
+    models:
+      - { provider: ollama, model: "${FAST_MODEL:-qwen3:4b}", context: ${FAST_CONTEXT:-32768} }
+      - { provider: ollama, model: "${FAST_MODEL_2:-llama3.2:3b}", context: 8192 }
+      - { provider: ollama, model: "${FAST_MODEL_3:-gemma3:4b}", context: 8192 }
+
+  coding:
+    title: Coding AI
+    summary: Swift / SwiftUI, Kotlin / Compose, Java / Spring Boot, APIs, debugging, refactoring, unit tests, code reviews
+    models:
+      - { provider: ollama, model: "${CODING_MODEL:-deepseek-coder-v2:16b}", context: ${CODING_CONTEXT:-16384} }
+      - { provider: ollama, model: "${CODING_MODEL_2:-qwen2.5-coder:14b}", context: 32768 }
+      - { provider: anthropic, model: "${ANTHROPIC_CODING_MODEL:-}", context: 200000, cloud: true }
+
+  general:
+    title: Nexora Intelligence
+    summary: Conversation, research, business analysis, documents, planning, explanation, creative tasks
+    models:
+      - { provider: ollama, model: "${GENERAL_MODEL:-qwen3:8b}", context: ${GENERAL_CONTEXT:-32768} }
+      - { provider: ollama, model: "${GENERAL_MODEL_2:-llama3.1:8b}", context: 32768 }
+      - { provider: anthropic, model: "${ANTHROPIC_GENERAL_MODEL:-}", context: 200000, cloud: true }
+      - { provider: openai, model: "${OPENAI_GENERAL_MODEL:-}", context: 128000, cloud: true }
+      - { provider: gemini, model: "${GEMINI_GENERAL_MODEL:-}", context: 1000000, cloud: true }
+
+  reasoning:
+    title: Nexora Reasoning
+    summary: Architecture, financial analysis, difficult debugging, multi-step plans, root cause, comparing solutions — only when needed
+    models:
+      - { provider: ollama, model: "${REASONING_MODEL:-qwen3:14b}", context: ${REASONING_CONTEXT:-32768}, thinking: true }
+      - { provider: ollama, model: "${REASONING_MODEL_2:-deepseek-r1:14b}", context: 32768, thinking: true }
+      - { provider: anthropic, model: "${ANTHROPIC_REASONING_MODEL:-}", context: 200000, cloud: true }
+      - { provider: openai, model: "${OPENAI_REASONING_MODEL:-}", context: 200000, cloud: true }
+      - { provider: gemini, model: "${GEMINI_REASONING_MODEL:-}", context: 1000000, cloud: true }
+
+  vision:
+    title: Nexora Vision
+    summary: Screenshots, UI analysis, document images, charts, OCR, visual troubleshooting
+    models:
+      - { provider: ollama, model: "${VISION_MODEL:-qwen2.5vl:7b}", context: 32768, vision: true }
+      - { provider: ollama, model: "${VISION_MODEL_2:-gemma3:4b}", context: 8192, vision: true }
+      - { provider: anthropic, model: "${ANTHROPIC_VISION_MODEL:-}", context: 200000, vision: true, cloud: true }
+      - { provider: openai, model: "${OPENAI_VISION_MODEL:-}", context: 128000, vision: true, cloud: true }
+      - { provider: gemini, model: "${GEMINI_VISION_MODEL:-}", context: 1000000, vision: true, cloud: true }

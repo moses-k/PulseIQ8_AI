@@ -1,0 +1,59 @@
+# PulseIQ8_AI in Docker.
+#   cp .env.example .env            # set PULSEIQ8_AI_KEYS (and cloud keys only if allowed)
+#
+# A) Ollama already running on this Mac (the Ollama app, or ~/coop/analytics/docker-compose.ollama.yml) — default:
+#   docker compose up -d --build                    # only PulseIQ8_AI; reaches Ollama at host.docker.internal:11434
+#
+# B) let this file run its own Ollama too (stop any other Ollama on port 11434 first):
+#   DOCKER_OLLAMA_URL=http://ollama:11434 docker compose --profile ollama up -d --build
+#   docker compose logs -f ollama-pull              # first run downloads the models in OLLAMA_MODELS
+#
+#   curl -H "X-Api-Key: $KEY" http://localhost:8091/v1/tiers
+services:
+  pulseiq8-ai:
+    build: .
+    container_name: pulseiq8-ai
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8091}:8090"   # host port : port inside the container
+    env_file: .env
+    environment:
+      # inside the container "localhost" is the container itself, so Ollama is reached via the host
+      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    container_name: pulseiq8-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: "30m"
+      OLLAMA_MAX_LOADED_MODELS: "2"
+      OLLAMA_NUM_PARALLEL: "1"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # downloads the models once (space-separated list in OLLAMA_MODELS), then exits
+  ollama-pull:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODELS: ${OLLAMA_MODELS:-deepseek-coder-v2:16b}
+    entrypoint: ["/bin/sh", "-c", "for m in $$OLLAMA_MODELS; do echo \"pulling $$m\"; ollama pull $$m || exit 1; done; echo 'models ready'"]
+    restart: "no"
+
+volumes:
+  ollama-models:

@@ -1,4 +1,4 @@
-# PulseIQ8_AI
+s# PulseIQ8_AI
 
 The AI service behind **PulseIQ8** mobile analytics (and the Nexora workspace). It is a separate service: PulseIQ8
 talks to it over HTTP, and any other app can too. It routes every request to the right **model tier**, falls back

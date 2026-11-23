@@ -5,6 +5,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY config ./config
+RUN mkdir -p /app/data
 RUN useradd -r -u 10001 pulseiq && chown -R pulseiq /app
 USER pulseiq
 EXPOSE 8091

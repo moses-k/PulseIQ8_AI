@@ -1,0 +1,8 @@
+.venv/
+.git/
+data/
+.env
+__pycache__/
+*.pyc
+tests/
+_to_delete/

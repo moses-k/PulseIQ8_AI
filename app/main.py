@@ -14,7 +14,9 @@ Every /v1 call needs X-Api-Key (or Authorization: Bearer <key>).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
+import json
 import logging
 import os
 import hmac
@@ -25,10 +27,12 @@ from typing import Optional
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 from pathlib import Path
 
 from . import __version__, config
+from .keys import KeyStore
 from .router import NoModelError, Router
 from .schemas import ChatRequest, ChatResponse, Image, Message, TaskRequest
 from .tasks import TASK_TIERS, TASKS, build_user_message
@@ -56,6 +60,8 @@ async def lifespan(app: FastAPI):
         app.state.settings = settings
         app.state.usage = Usage()
         app.state.router = Router(settings, client, app.state.usage, TASK_TIERS)
+        app.state.keys = KeyStore(os.environ.get("PULSEIQ8_KEYS_FILE",
+                                                 Path(__file__).resolve().parent.parent / "data" / "keys.json"))
         yield
 
 
@@ -67,12 +73,28 @@ app = FastAPI(title="PulseIQ8_AI", version=__version__, lifespan=lifespan,
 def require_key(request: Request, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> None:
     keys = app.state.settings.api_keys
     given = x_api_key or (authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else None)
+    if given and app.state.keys.check(given):
+        return
     if not given or not any(hmac.compare_digest(given.encode(), k.encode()) for k in keys):
         # say why, without printing the key itself
         why = "no X-Api-Key / Bearer header" if not given else f"wrong key ({len(given)} chars, starts {given[:4]}…)"
         log.warning("401 %s %s — %s; expected one of %d key(s) from PULSEIQ8_AI_KEYS (%s)",
                     request.method, request.url.path, why, len(keys), ", ".join(f"{len(k)} chars, starts {k[:4]}…" for k in keys))
         raise HTTPException(status_code=401, detail="Missing or wrong API key (X-Api-Key)")
+
+
+def _is_local(request: Request) -> bool:
+    """A call from this computer itself (not from Docker, the network or another machine)."""
+    host = request.client.host if request.client else ""
+    return host in ("127.0.0.1", "::1") and os.environ.get("PULSEIQ8_LOCAL_ADMIN", "true").lower() != "false"
+
+
+def require_admin(request: Request, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)) -> None:
+    """Managing keys: allowed with a valid key, or from this computer itself (so the first key can be created
+    in the browser without copying one from .env). Turn the second off with PULSEIQ8_LOCAL_ADMIN=false."""
+    if _is_local(request):
+        return
+    require_key(request, x_api_key, authorization)
 
 
 @app.exception_handler(NoModelError)
@@ -97,6 +119,29 @@ async def health():
     return {"status": "ok", "service": "PulseIQ8_AI", "version": __version__}
 
 
+class NewKey(BaseModel):
+    name: str = "API key"
+
+
+@app.get("/v1/keys", dependencies=[Depends(require_admin)])
+async def list_keys():
+    """Keys created here (only their first characters). Keys from PULSEIQ8_AI_KEYS in .env are not listed."""
+    return {"keys": app.state.keys.list(), "env_keys": len(app.state.settings.api_keys)}
+
+
+@app.post("/v1/keys", dependencies=[Depends(require_admin)])
+async def create_key(body: NewKey):
+    """Create a key. The full key is in this answer only — it is stored as a hash."""
+    return app.state.keys.create(body.name)
+
+
+@app.delete("/v1/keys/{key_id}", dependencies=[Depends(require_admin)])
+async def revoke_key(key_id: str):
+    if not app.state.keys.revoke(key_id):
+        raise HTTPException(status_code=404, detail="No such key")
+    return {"revoked": key_id}
+
+
 @app.get("/v1/tiers", dependencies=[Depends(require_key)])
 async def tiers():
     return await app.state.router.status()
@@ -106,6 +151,35 @@ async def tiers():
 async def chat(req: ChatRequest):
     _check_images(req.messages)
     return await app.state.router.chat(req)
+
+
+@app.post("/v1/chat/stream", dependencies=[Depends(require_key)])
+async def chat_stream(req: ChatRequest):
+    """Server-sent events: meta → delta … → done | error. A ': ping' comment every 10 s while the model loads."""
+    _check_images(req.messages)
+
+    async def events():
+        gen = app.state.router.chat_stream(req)
+        nxt = asyncio.ensure_future(gen.__anext__())
+        try:
+            while True:
+                done, _ = await asyncio.wait({nxt}, timeout=10)
+                if not done:
+                    yield ": ping\n\n"
+                    continue
+                try:
+                    ev = nxt.result()
+                except StopAsyncIteration:
+                    break
+                yield f"event: {ev['type']}\ndata: {json.dumps(ev)}\n\n"
+                nxt = asyncio.ensure_future(gen.__anext__())
+        finally:
+            if not nxt.done():
+                nxt.cancel()
+            await gen.aclose()
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/v1/tasks", dependencies=[Depends(require_key)])

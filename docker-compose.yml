@@ -15,7 +15,7 @@ services:
     container_name: pulseiq8-ai
     restart: unless-stopped
     ports:
-      - "${PORT:-8091}:8090"   # host port : port inside the container
+      - "${PORT:-8091}:8091"   # host port : port inside the container
     env_file: .env
     environment:
       # inside the container "localhost" is the container itself, so Ollama is reached via the host

@@ -225,3 +225,47 @@ def test_routing_off_fixed_cloud_model_respects_policy():
     with pytest.raises(Exception) as e:
         run(r, user("hello"))
     assert "cloud model" in str(e.value)
+
+
+def test_empty_json_is_retried_with_format_json_then_rejected():
+    calls = []
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "deepseek-coder-v2:16b"}]})
+        body = json.loads(request.content); calls.append(body.get("format"))
+        text = "{}" if body.get("format") is None else '{"headline": "ok", "findings": [1]}'
+        return httpx.Response(200, json={"message": {"content": text}})
+    s = settings(PULSEIQ8_ROUTING="false", PULSEIQ8_FIXED_MODEL="deepseek-coder-v2:16b")
+    r = Router(s, httpx.AsyncClient(transport=httpx.MockTransport(handler)), Usage(), TASK_TIERS)
+    res = run(r, user("analyse", json=True))
+    assert res.json_data == {"headline": "ok", "findings": [1]} and calls == [None, "json"]
+
+    def always_empty(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "deepseek-coder-v2:16b"}]})
+        return httpx.Response(200, json={"message": {"content": "{}"}})
+    r = Router(s, httpx.AsyncClient(transport=httpx.MockTransport(always_empty)), Usage(), TASK_TIERS)
+    with pytest.raises(Exception) as e:
+        run(r, user("analyse", json=True))
+    assert "no usable JSON" in str(e.value)
+
+
+def test_keys_created_in_the_service(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main
+    monkeypatch.setenv("PULSEIQ8_KEYS_FILE", str(tmp_path / "keys.json"))
+    fake = Fake(ALL_LOCAL)
+    with TestClient(main.app) as c:     # TestClient's client host is "testclient": not local
+        main.app.state.router = Router(main.app.state.settings, httpx.AsyncClient(transport=httpx.MockTransport(fake)),
+                                       main.app.state.usage, TASK_TIERS)
+        assert c.post("/v1/keys", json={"name": "x"}).status_code == 401          # remote: needs a key
+        h = {"X-Api-Key": "test-key"}
+        made = c.post("/v1/keys", headers=h, json={"name": "Chat in Chrome"}).json()
+        assert made["key"].startswith("piq8_") and len(made["key"]) == 53
+        new = {"X-Api-Key": made["key"]}
+        assert c.get("/v1/tiers", headers=new).status_code == 200                # the new key works
+        listed = c.get("/v1/keys", headers=h).json()["keys"]
+        assert listed[0]["name"] == "Chat in Chrome" and "key" not in listed[0] and listed[0]["last_used"]
+        assert made["key"] not in (tmp_path / "keys.json").read_text()           # only the hash is stored
+        assert c.delete(f"/v1/keys/{made['id']}", headers=h).status_code == 200
+        assert c.get("/v1/tiers", headers=new).status_code == 401                # revoked

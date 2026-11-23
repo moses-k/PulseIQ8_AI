@@ -87,7 +87,8 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
 .thread{max-width:780px;margin:0 auto;padding:12px 20px 24px}
 .msg{margin:22px 0}
 .msg.user{display:flex;justify-content:flex-end}
-.msg.user .bubble{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:10px 16px;max-width:85%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.user .uwrap{max-width:85%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
+.msg.user .bubble{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:10px 16px;max-width:100%;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal}
 .msg.user .imgs{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-bottom:6px}
 .msg.user .imgs img{max-height:140px;border-radius:10px;border:1px solid var(--line)}
 .ai{font-size:15.5px;line-height:1.7;overflow-wrap:anywhere}
@@ -148,6 +149,16 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
 .field{display:grid;gap:5px;margin-bottom:12px;font-size:14px}.field small{color:var(--muted)}
 .field input,.field select{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px 10px;font:inherit}
 .btnrow{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.keys{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:0 0 14px;font-size:14px}
+.keys-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.btn.small{padding:4px 10px;font-size:13px}
+.keys ul{list-style:none;margin:0;padding:0;max-height:160px;overflow:auto}
+.keys li{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)}
+.keys li:first-child{border-top:0}.keys li .kn{flex:1;min-width:0}.keys li small{display:block;color:var(--muted);font-size:12px}
+.keys li code{font:12px var(--mono);color:var(--muted)}
+.keys .muted{color:var(--muted)}
+.newkey{background:var(--bg);border:1px solid var(--accent);border-radius:10px;padding:8px 10px;margin-bottom:8px;font-size:13px}
+.newkey code{display:block;font:12.5px var(--mono);word-break:break-all;margin:4px 0;user-select:all}
 .btn{border:1px solid var(--line);background:none;border-radius:10px;padding:8px 14px}.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:10px;font-size:14px;z-index:40}
 .scrim{display:none}
@@ -218,7 +229,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
       </section>
       <section class="thread" id="thread" hidden aria-live="polite"></section>
     </div>
-    <div class="dock" id="dock" hidden><div id="composerDock"></div><div class="hint">AI can make mistakes. Check important answers, especially code, before using them.</div></div>
+    <div class="dock" id="dock" hidden><div id="composerDock"></div><div class="hint">AI can make mistakes. Check important answers. Powered by Musa</div></div>
   </main>
 </div>
 
@@ -245,7 +256,12 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
 <div class="modal" id="settings" hidden>
   <form class="card" id="settingsForm">
     <h2>Customize</h2>
-    <label class="field">API key<input type="password" id="sKey" autocomplete="off" placeholder="PULSEIQ8_AI_KEYS from .env"><small>Kept in this browser only.</small></label>
+    <label class="field">API key<input type="password" id="sKey" autocomplete="off" placeholder="Create one below, or paste a key"><small>Kept in this browser only.</small></label>
+    <div class="keys">
+      <div class="keys-head"><b>API keys</b><button type="button" class="btn small" id="newKey">+ Create key</button></div>
+      <div class="newkey" id="newKeyOut" hidden></div>
+      <ul id="keyList"><li class="muted">…</li></ul>
+    </div>
     <label class="field">Your name<input id="sName" placeholder="e.g. Mxa"></label>
     <label class="field">Organisation<input id="sOrg" placeholder="e.g. Co-op Bank Group"></label>
     <label class="field">Theme<select id="sTheme"><option value="">Follow the system</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -473,18 +489,18 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
     $('projTag').innerHTML = p && !state.temp ? `<span class="inproj"><svg width="14" height="14"><use href="#i-proj"/></svg>${esc(p.name)}${show ? '' : '<button type="button" id="leaveProj" aria-label="Not in a project">×</button>'}</span>` : '';
     if (!show) return;
     $('thread').innerHTML = c.messages.map((m, i) => m.role === 'user'
-      ? `<div class="msg user"><div>${m.images && m.images.length ? `<div class="imgs">${m.images.map((im) => `<img alt="attached image" src="data:${esc(im.media_type)};base64,${im.data}">`).join('')}</div>` : m.imageCount ? `<div class="imgs" style="font-size:12px;color:var(--faint)">${m.imageCount} image(s) attached</div>` : ''}<div class="bubble">${esc(m.content)}</div></div></div>`
+      ? `<div class="msg user"><div class="uwrap">${m.images && m.images.length ? `<div class="imgs">${m.images.map((im) => `<img alt="attached image" src="data:${esc(im.media_type)};base64,${im.data}">`).join('')}</div>` : m.imageCount ? `<div class="imgs" style="font-size:12px;color:var(--faint)">${m.imageCount} image(s) attached</div>` : ''}<div class="bubble">${esc(m.content)}</div></div></div>`
       : `<div class="msg">${m.error ? `<div class="err">${esc(m.error)}</div>` : `<div class="ai">${markdown(m.content)}</div>`}
          <div class="meta">${m.meta ? `<span class="pill" title="${esc(m.meta.reason || '')}">${esc(tierName(m.meta.tier))}</span><span>${esc(m.meta.model || '')}</span><span>· ${(m.meta.ms / 1000).toFixed(1)} s</span>` : ''}
          ${m.error ? `<button data-retry="${i}" title="Try again" aria-label="Try again"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg></button>`
            : `<button data-copymsg="${i}" title="Copy" aria-label="Copy answer"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>`}</div></div>`).join('')
-      + (state.busy && state.busy.chat === c.id ? `<div class="msg"><div class="thinking"><svg class="spark" style="color:var(--accent)"><use href="#i-pulse"/></svg><span id="thinkText">Thinking… 0m 00s</span></div></div>` : '');
+      + (state.busy && state.busy.chat === c.id ? `<div class="msg"><div class="thinking"><svg class="spark" style="color:var(--accent)"><use href="#i-pulse"/></svg><span id="thinkText">Thinking… 0m 00s</span></div><div class="ai" id="liveAns">${state.busy.text ? markdown(visible(state.busy.text)) : ''}</div></div>` : '');
   }
   document.addEventListener('click', (e) => { if (e.target.closest('#leaveProj')) { state.project = null; renderThread(); } });
   $('thread').addEventListener('click', (e) => {
     const cp = e.target.closest('[data-copymsg]'), rt = e.target.closest('[data-retry]'); const c = chat();
     if (cp) { navigator.clipboard?.writeText(c.messages[+cp.dataset.copymsg].content); toast('Copied'); }
-    if (rt && !state.busy) { c.messages.splice(+rt.dataset.retry, 1); ask(c, c.messages[c.messages.length - 1]); }
+    if (rt && !state.busy) { c.messages.splice(+rt.dataset.retry, 1); while (c.messages.length && c.messages[c.messages.length - 1].role === 'assistant') c.messages.pop(); ask(c, c.messages[c.messages.length - 1]); }
   });
   const scrollEnd = () => requestAnimationFrame(() => { $('scroll').scrollTop = $('scroll').scrollHeight; });
   function renderMode() { document.querySelectorAll('[data-mode]').forEach((b) => { if (!b.classList.contains('chip')) b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)); }); $('input').placeholder = state.mode === 'code' ? 'Describe the code, bug or crash…' : 'How can I help you today?'; }
@@ -603,21 +619,68 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
     ask(c, msg);
   });
 
+  /* hide <think>…</think> reasoning that some models print before the answer */
+  function visible(t) { return t.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').replace(/^\s+/, ''); }
+  const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
+
+  /* streams the answer: meta → delta … → done | error (server-sent events) */
+  async function streamChat(body, signal, onEvent) {
+    const res = await fetch('/v1/chat/stream', { method: 'POST', signal, headers: { 'X-Api-Key': key(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.status === 401) { openSettings('Enter the API key (PULSEIQ8_AI_KEYS in .env).'); throw new Error('API key missing or wrong'); }
+    if (!res.ok || !res.body) { let d = {}; try { d = await res.json(); } catch (_) { /* empty */ } const e = new Error(d.error || d.detail || `${res.status} ${res.statusText}`); e.status = res.status; throw e; }
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) > -1) {
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('\n');
+        if (data) { try { onEvent(JSON.parse(data)); } catch (_) { /* skip */ } }
+      }
+    }
+  }
+
   async function ask(c, last) {
     const ctrl = new AbortController(), t0 = Date.now();
-    state.busy = { chat: c.id, ctrl }; c.updated = Date.now(); if (!state.temp) save(); renderAll(); scrollEnd();
-    const tick = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); const el = $('thinkText'); if (el) el.textContent = `Thinking… ${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; }, 500);
+    state.busy = { chat: c.id, ctrl, text: '', phase: 'Thinking' }; c.updated = Date.now(); if (!state.temp) save(); renderAll(); scrollEnd();
+    const tick = setInterval(() => {
+      const el = $('thinkText'); if (!el) return;
+      const b = state.busy; if (!b) return;
+      const s = (Date.now() - t0) / 1000;
+      const phase = b.text ? 'Writing' : s > 20 ? 'Loading the model — the first answer after a start can take a minute or two' : 'Thinking';
+      el.textContent = `${phase}… ${clock(Date.now() - t0)}`;
+    }, 500);
     const history = c.messages.filter((m) => !m.error).slice(-20).map((m) => ({ role: m.role, content: m.content, images: m === last ? (m.images || []).map(({ data, media_type }) => ({ data, media_type })) : [] }));
     const tier = state.mode === 'code' && state.tier === 'auto' ? 'coding' : state.tier;
     const p = proj(c.projectId);
+    const body = { messages: history, tier, task: state.mode === 'code' ? 'nexora.code' : 'nexora.chat', sensitive: state.local,
+      max_tokens: EFFORT[state.effort].tokens, system: SYS[state.mode] + (p ? `\nThis chat belongs to the project “${p.name}”.` : '') };
+    let meta = null, error = null, raf = 0;
+    const paint = () => { raf = 0; const el = $('liveAns'); if (el) { el.innerHTML = markdown(visible(state.busy.text)); scrollEnd(); } };
     try {
-      const r = await api('/v1/chat', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history, tier, task: state.mode === 'code' ? 'nexora.code' : 'nexora.chat', sensitive: state.local,
-          max_tokens: EFFORT[state.effort].tokens, system: SYS[state.mode] + (p ? `\nThis chat belongs to the project “${p.name}”.` : '') }) });
-      c.messages.push({ role: 'assistant', content: r.text, meta: { tier: r.tier, model: r.model, provider: r.provider, reason: r.route_reason, ms: r.latency_ms } });
+      try {
+        await streamChat(body, ctrl.signal, (ev) => {
+          if (ev.type === 'meta') meta = { tier: ev.tier, model: ev.model, provider: ev.provider, reason: ev.route_reason };
+          else if (ev.type === 'delta') { state.busy.text += ev.text; if (!raf) raf = requestAnimationFrame(paint); }
+          else if (ev.type === 'done') { if (meta) meta.ms = ev.latency_ms; }
+          else if (ev.type === 'error') error = ev.message;
+        });
+      } catch (err) {
+        if (err.status !== 404 || err.name === 'AbortError') throw err;
+        /* older service without streaming */
+        const r = await api('/v1/chat', { method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        state.busy.text = r.text; meta = { tier: r.tier, model: r.model, provider: r.provider, reason: r.route_reason, ms: r.latency_ms };
+      }
+      const text = visible(state.busy.text);
+      if (text) c.messages.push({ role: 'assistant', content: text, meta: meta && { ...meta, ms: meta.ms || Date.now() - t0 } });
+      if (error || !text) c.messages.push({ role: 'assistant', content: '', error: error || 'The model finished without an answer. Try again.' });
     } catch (err) {
+      const partial = visible(state.busy.text || '');
+      if (partial) c.messages.push({ role: 'assistant', content: partial, meta: meta && { ...meta, ms: Date.now() - t0 } });
       c.messages.push({ role: 'assistant', content: '', error: err.name === 'AbortError' ? 'Stopped.' : err.message });
     } finally {
+      if (raf) cancelAnimationFrame(raf);
       clearInterval(tick); state.busy = null; c.updated = Date.now(); if (!state.temp) save(); renderAll(); scrollEnd();
     }
   }
@@ -633,8 +696,42 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
 
   function openSettings(note) {
     $('sKey').value = key(); $('sName').value = store.get('name', ''); $('sOrg').value = store.get('org', ''); $('sTheme').value = store.get('theme', '');
-    $('settings').hidden = false; (key() ? $('sName') : $('sKey')).focus(); if (note) toast(note);
+    $('newKeyOut').hidden = true;
+    $('settings').hidden = false; (key() ? $('sName') : $('newKey')).focus(); if (note) toast(note);
+    loadKeys();
   }
+  /* API keys made by the service (from this computer no key is needed to manage them) */
+  const keyHeaders = () => ({ 'X-Api-Key': $('sKey').value.trim() || key() });
+  async function loadKeys() {
+    try {
+      const r = await fetch('/v1/keys', { headers: keyHeaders() });
+      if (!r.ok) { $('keyList').innerHTML = `<li class="muted">${r.status === 401 ? 'Paste a valid key to manage keys from this device.' : 'Could not load keys.'}</li>`; return; }
+      const d = await r.json();
+      const when = (t) => t ? new Date(t * 1000).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never';
+      $('keyList').innerHTML = (d.keys.length ? d.keys.map((k) => `<li><span class="kn">${esc(k.name)} <code>${esc(k.prefix)}</code><small>created ${when(k.created)} · last used ${when(k.last_used)}</small></span>
+        <button type="button" class="btn small" data-revoke="${esc(k.id)}">Revoke</button></li>`).join('') : '<li class="muted">No keys created here yet.</li>')
+        + (d.env_keys ? `<li class="muted">+ ${d.env_keys} key${d.env_keys > 1 ? 's' : ''} from .env (PULSEIQ8_AI_KEYS)</li>` : '');
+    } catch (_) { $('keyList').innerHTML = '<li class="muted">PulseIQ8 AI is not reachable.</li>'; }
+  }
+  $('newKey').onclick = async () => {
+    const name = prompt('Name for the key (who / what uses it)', 'Chat — ' + (navigator.userAgent.includes('Chrome') ? 'Chrome' : 'browser'));
+    if (name === null) return;
+    try {
+      const r = await fetch('/v1/keys', { method: 'POST', headers: { ...keyHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || d.error || r.status);
+      $('sKey').value = d.key;
+      $('newKeyOut').hidden = false;
+      $('newKeyOut').innerHTML = `<b>Key created</b> — copied into the field above. Save to use it here. Copy it now if another app needs it; it is not shown again.<code>${esc(d.key)}</code><button type="button" class="btn small" id="copyKey">Copy</button>`;
+      $('copyKey').onclick = () => navigator.clipboard?.writeText(d.key).then(() => toast('Key copied'));
+      loadKeys();
+    } catch (e) { toast('Could not create a key: ' + e.message); }
+  };
+  $('keyList').onclick = async (e) => {
+    const b = e.target.closest('[data-revoke]'); if (!b || !confirm('Revoke this key? Apps using it stop working.')) return;
+    const r = await fetch('/v1/keys/' + encodeURIComponent(b.dataset.revoke), { method: 'DELETE', headers: keyHeaders() });
+    if (!r.ok) toast('Could not revoke'); loadKeys();
+  };
   $('customize').onclick = () => openSettings();
   $('whoBtn').onclick = () => openSettings();
   $('sCancel').onclick = () => { $('settings').hidden = true; };

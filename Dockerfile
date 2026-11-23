@@ -8,5 +8,5 @@ COPY config ./config
 RUN useradd -r -u 10001 pulseiq && chown -R pulseiq /app
 USER pulseiq
 EXPOSE 8091
-HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8090/health')" || exit 1
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8091"]
+HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8091/health')" || exit 1
+CMD ["uvicorn", "app.main:app", "--http", "h11", "--host", "0.0.0.0", "--port", "8091"]

@@ -18,4 +18,4 @@ fi
 echo "PulseIQ8_AI on $(.venv/bin/python --version)"
 .venv/bin/pip install -q -r requirements.txt
 set -a; . ./.env; set +a
-exec .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "${PORT:-8091}"
+exec .venv/bin/uvicorn app.main:app --http h11 --host 127.0.0.1 --port "${PORT:-8091}"

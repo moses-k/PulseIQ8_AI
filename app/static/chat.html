@@ -282,7 +282,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
   };
   const TIERS = [
     { id: 'auto', name: 'Auto', desc: 'Picks the right model for each message' },
-    { id: 'fast', name: 'Fast', desc: 'Quick answers, summaries, titles' },
+    { id: 'fast', name: 'Quick', desc: 'Qwen3 · quick answers, summaries, titles' },
     { id: 'coding', name: 'Coding', desc: 'Swift, Kotlin, Java / Spring, debugging, reviews' },
     { id: 'general', name: 'Intelligence', desc: 'Research, analysis, planning, writing' },
     { id: 'reasoning', name: 'Reasoning', desc: 'Architecture, root cause, comparing solutions' },
@@ -295,7 +295,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
   };
   const state = {
     chats: store.get('chats', []), projects: store.get('projects', []), current: null, project: null,
-    tier: store.get('tier', 'auto'), effort: store.get('effort', 'medium'), mode: store.get('mode', 'chat'),
+    tier: store.get('tier', 'auto'), model: store.get('model', ''), effort: store.get('effort', 'medium'), mode: store.get('mode', 'chat'),
     local: store.get('local', true), open: store.get('open', { pinned: true, projects: true, recents: true }),
     expanded: store.get('expanded', {}), temp: false, tempChat: null, attach: [], busy: null, status: null,
   };
@@ -551,10 +551,14 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
   };
 
   /* model / effort menu */
+  /* first ready model of a tier, from /v1/tiers */
+  const tierModel = (id) => { const t = state.status && state.status.tiers && state.status.tiers[id]; const m = t && t.models.find((x) => x.available); return m ? m.model : ''; };
   function renderPick() {
     const s = state.status, off = s && s.routing === false;
+    if (state.model && s && !(s.ollama_models || []).includes(state.model)) { state.model = ''; store.set('model', ''); }   // uninstalled since
     const tier = state.mode === 'code' && state.tier === 'auto' ? 'coding' : state.tier;
-    $('pickName').textContent = off ? ((s.fixed_model || {}).model || 'Fixed model') : (TIERS.find((t) => t.id === tier) || TIERS[0]).name;
+    $('pickName').textContent = state.model ? state.model
+      : off && tier === 'auto' ? ((s.fixed_model || {}).model || 'Fixed model') : (TIERS.find((t) => t.id === tier) || TIERS[0]).name;
     $('pickEffort').textContent = EFFORT[state.effort].name;
   }
   function showMenu(html, anchor, onPick) {
@@ -567,13 +571,18 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
     e.stopPropagation();
     if (!$('menu').hidden) { $('menu').hidden = true; return; }
     const s = state.status, off = s && s.routing === false;
-    const tiers = off ? `<div class="note">Routing is off on the server — every message goes to <b>${esc((s.fixed_model || {}).model || '')}</b>.</div>`
-      : TIERS.map((t) => { const tr = s && s.tiers && s.tiers[t.id]; const ready = t.id === 'auto' || !tr || tr.ready;
-        return `<button type="button" data-tier="${t.id}"><span class="tick">${t.id === state.tier ? '✓' : ''}</span><span><b>${esc(t.name)}${ready ? '' : ' <span style="color:var(--bad);font-weight:400">· no model</span>'}</b><small>${esc(t.desc)}</small></span></button>`; }).join('');
+    const note = off ? `<div class="note">Routing is off: <b>Auto</b> uses <b>${esc((s.fixed_model || {}).model || '')}</b>; pick a mode or model to switch.</div>` : '';
+    const tiers = note + TIERS.map((t) => { const tr = s && s.tiers && s.tiers[t.id]; const ready = t.id === 'auto' || !tr || tr.ready;
+        const uses = t.id === 'auto' ? '' : tierModel(t.id);
+        return `<button type="button" data-tier="${t.id}"><span class="tick">${!state.model && t.id === state.tier ? '✓' : ''}</span><span><b>${esc(t.name)}${ready ? '' : ' <span style="color:var(--bad);font-weight:400">· no model</span>'}</b><small>${esc(t.desc)}${uses ? ' · ' + esc(uses) : ''}</small></span></button>`; }).join('');
+    const installed = (s && s.ollama_models) || [];
+    const models = installed.length ? `<hr><div class="mh">Installed models</div>` + installed.map((m) =>
+      `<button type="button" data-model="${esc(m)}"><span class="tick">${state.model === m ? '✓' : ''}</span><span><b>${esc(m)}</b><small>Always answer with this model</small></span></button>`).join('') : '';
     const effort = Object.entries(EFFORT).map(([k, v]) => `<button type="button" data-effort="${k}"><span class="tick">${k === state.effort ? '✓' : ''}</span><span><b>${v.name}</b><small>${k === 'low' ? 'Short answers, fastest' : k === 'medium' ? 'Balanced' : 'Longer, more thorough answers'}</small></span></button>`).join('');
-    showMenu(`<div class="mh">Model</div>${tiers}<hr><div class="mh">Effort</div>${effort}<hr>
+    showMenu(`<div class="mh">Mode</div>${tiers}${models}<hr><div class="mh">Effort</div>${effort}<hr>
       <button type="button" data-local="1"><span class="tick">${state.local ? '✓' : ''}</span><span><b>Local models only</b><small>Never send this chat to a cloud provider</small></span></button>`, $('pickBtn'), (b) => {
-      if (b.dataset.tier) { state.tier = b.dataset.tier; store.set('tier', state.tier); }
+      if (b.dataset.tier) { state.tier = b.dataset.tier; store.set('tier', state.tier); state.model = ''; store.set('model', ''); }
+      if (b.dataset.model) { state.model = b.dataset.model; store.set('model', state.model); }
       if (b.dataset.effort) { state.effort = b.dataset.effort; store.set('effort', state.effort); }
       if (b.dataset.local) { state.local = !state.local; store.set('local', state.local); }
       renderPick();
@@ -654,7 +663,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
     const history = c.messages.filter((m) => !m.error).slice(-20).map((m) => ({ role: m.role, content: m.content, images: m === last ? (m.images || []).map(({ data, media_type }) => ({ data, media_type })) : [] }));
     const tier = state.mode === 'code' && state.tier === 'auto' ? 'coding' : state.tier;
     const p = proj(c.projectId);
-    const body = { messages: history, tier, task: state.mode === 'code' ? 'nexora.code' : 'nexora.chat', sensitive: state.local,
+    const body = { messages: history, tier, ...(state.model ? { model: state.model } : {}), task: state.mode === 'code' ? 'nexora.code' : 'nexora.chat', sensitive: state.local,
       max_tokens: EFFORT[state.effort].tokens, system: SYS[state.mode] + (p ? `\nThis chat belongs to the project “${p.name}”.` : '') };
     let meta = null, error = null, raf = 0;
     const paint = () => { raf = 0; const el = $('liveAns'); if (el) { el.innerHTML = markdown(visible(state.busy.text)); scrollEnd(); } };

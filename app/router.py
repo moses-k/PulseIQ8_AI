@@ -183,8 +183,49 @@ class Router:
 
     # ---------------- the call ----------------
 
+    def _fixed_only(self, req: ChatRequest) -> bool:
+        """Routing off: the fixed model answers, unless the caller picked a mode (tier) explicitly."""
+        return not self.s.routing and (req.tier or "auto") == "auto" and not req.model
+
+    async def chosen_model(self, req: ChatRequest) -> ModelSpec:
+        """The model the caller picked by name ("qwen3:8b" or "provider:model"). Settings (context, thinking) come
+        from the first tier that lists it; other installed Ollama models are allowed with the fixed model's context."""
+        name = (req.model or "").strip()
+        provider, model = ("ollama", name)
+        if ":" in name and name.split(":", 1)[0] in self.s.providers:
+            provider, model = name.split(":", 1)
+        known = [m for t in self.s.tiers.values() for m in t.models if m.provider == provider and m.model == model]
+        if req.tier not in (None, "auto"):
+            known = sorted(known, key=lambda m: m.tier != req.tier)        # the chosen mode's settings first
+        fixed = self.s.fixed
+        if known:
+            spec = known[0]
+        elif fixed is not None and fixed.provider == provider and fixed.model == model:
+            spec = fixed
+        elif self.s.providers.get(provider) is not None and self.s.providers[provider].type == "ollama":
+            spec = ModelSpec(tier="model", provider=provider, model=model, context=fixed.context if fixed else 8192)
+        else:
+            raise NoModelError(f"Model {name} is not configured")
+        if spec.cloud and (self.s.data_policy == "local_only" or req.sensitive):
+            raise NoModelError(f"{spec.key} is a cloud model, which the data policy / a sensitive request does not allow")
+        ok, why = self.available(spec, await self.installed())
+        if not ok:
+            raise NoModelError(f"Model {spec.model} cannot answer: {why}")
+        return spec
+
     async def _plan(self, req: ChatRequest):
         """Route the request: (route, system prompt, messages, [(tier, model) in the order to try])."""
+        if req.model:
+            spec = await self.chosen_model(req)
+            system = "\n\n".join(x for x in (req.system, privacy.INJECTION_GUARD) if x)
+            sys_extra = "\n\n".join(m.content for m in req.messages if m.role == "system")
+            if sys_extra:
+                system = sys_extra + "\n\n" + system
+            if req.json_output:
+                system += "\n\nAnswer with ONE valid JSON object only — no markdown, no text before or after it."
+            tier = spec.tier if spec.tier in self.s.tiers else (req.tier if req.tier != "auto" else "general")
+            return (Route(tier, f"model {spec.model} chosen by the user"), system,
+                    [m.model_dump() for m in req.messages if m.role != "system"], [(tier, spec)])
         route = decide(req, self.task_tiers)
         if not route.confident and self.s.llm_classifier:
             tier = await self.classify(req)
@@ -219,7 +260,7 @@ class Router:
 
     async def chat(self, req: ChatRequest) -> ChatResponse:
         t0 = time.monotonic()
-        if not self.s.routing:
+        if self._fixed_only(req):
             return await self._fixed(req, t0)
         route, system, base_msgs, plan = await self._plan(req)
         attempts: list[Attempt] = []
@@ -297,7 +338,7 @@ class Router:
         Same routing, privacy masking and fallback as chat(); a model that fails before writing anything is
         skipped for the next one, a failure after text was sent ends the stream with an error."""
         t0 = time.monotonic()
-        if not self.s.routing:
+        if self._fixed_only(req):
             spec = self.s.fixed
             if spec is None:
                 yield {"type": "error", "message": "Routing is off but router.fixed has no model (set PULSEIQ8_FIXED_MODEL)"}

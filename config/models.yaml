@@ -44,11 +44,12 @@ providers:
 
 tiers:
   fast:
-    title: Fast AI
-    summary: Low latency • Local • Lightweight — quick answers, summaries, classification, intent, simple writing, chat titles
+    title: Quick (Qwen3)
+    summary: Low latency • Local — quick answers, summaries, classification, intent, simple writing, chat titles
     models:
-      - { provider: ollama, model: "${FAST_MODEL:-qwen3:4b}", context: ${FAST_CONTEXT:-32768} }
-      - { provider: ollama, model: "${FAST_MODEL_2:-llama3.2:3b}", context: 8192 }
+      - { provider: ollama, model: "${FAST_MODEL:-qwen3:8b}", context: ${FAST_CONTEXT:-32768} }
+      - { provider: ollama, model: "${FAST_MODEL_2:-qwen3:4b}", context: 8192 }
+      - { provider: ollama, model: "${FAST_MODEL_3B:-llama3.2:3b}", context: 8192 }
       - { provider: ollama, model: "${FAST_MODEL_3:-gemma3:4b}", context: 8192 }
 
   coding:

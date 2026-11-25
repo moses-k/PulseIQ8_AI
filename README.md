@@ -69,15 +69,23 @@ Interactive API docs: `http://localhost:8092/docs`.
 ```bash
 cd ~/dev/PlayGround/Nox/PulseIQ8_AI
 cp .env.example .env            # set PULSEIQ8_AI_KEYS to a long random value
-ollama pull qwen3:4b; ollama pull qwen3:8b     # deepseek-coder-v2:16b you already have
+ollama pull qwen3:8b            # Quick / Standard / Deep (add deepseek-coder-v2:16b for Coding)
 ./run.sh                        # → http://localhost:8092
 ```
+
+**Ollama only, in Docker** (when you don't use the Ollama app; quit the app first, both use port 11434):
+```bash
+docker compose -f docker-compose.ollama.yml up -d          # Ollama + downloads OLLAMA_MODELS (default qwen3:8b)
+docker compose -f docker-compose.ollama.yml logs -f ollama
+./run.sh                                                   # PulseIQ8_AI on the Mac, talking to it on localhost:11434
+```
+Docker on Apple silicon has no GPU access, so the Ollama app answers much faster; Docker needs about 12 GB of memory.
 
 **Docker (service + Ollama + model download):**
 ```bash
 cp .env.example .env
 docker compose up -d --build
-docker compose logs -f ollama-pull
+docker compose logs -f ollama
 ```
 
 **Tests:** `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest && .venv/bin/pytest -q`

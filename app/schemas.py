@@ -29,8 +29,10 @@ class ChatRequest(BaseModel):
     temperature: float = Field(0.2, ge=0, le=2)
     sensitive: bool = Field(False, description="true = local models only, never a cloud provider")
     escalate: Optional[bool] = None
+    model: Optional[str] = Field(None, description="answer with this exact model (e.g. qwen3:8b or ollama:qwen3:8b) "
+                                                   "instead of routing; must be installed / configured")
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "protected_namespaces": ()}
 
 
 class Attempt(BaseModel):
@@ -56,10 +58,13 @@ class ChatResponse(BaseModel):
 
 
 class AssistantRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     """Data assistant: a conversation about the sales data (the last user message is the question)."""
     messages: list[Message]
     context: dict[str, Any] = Field(default_factory=dict, description="what the user is looking at, e.g. {from, to, region, segment, rep, page}")
     tier: Literal["auto", "fast", "general", "reasoning"] = "auto"
+    model: Optional[str] = Field(None, description="preferred local model, e.g. qwen3:8b or deepseek-coder-v2:16b (default: by mode)")
     local_only: Optional[bool] = Field(None, description="true = local models only (default from ASSISTANT_LOCAL_ONLY, true)")
 
 

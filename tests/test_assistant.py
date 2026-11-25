@@ -349,3 +349,19 @@ def test_api_chat_stream_tools_and_webhook():
         r = c.post("/whatsapp/webhook", content=raw, headers={"X-Hub-Signature-256": sig})
         assert r.status_code == 200 and r.json() == {"queued": 0}
         assert c.get("/v1/whatsapp/status", headers=h).json()["enabled"] is True
+
+
+def test_preferred_model_is_used_and_listed():
+    src, _ = source()
+    router = FakeRouter([{"answer": "ok"}])
+    asyncio.run(Assistant(router, src).ask([Message(role="user", content="hi")],
+                                           {"user": USERS[GOOD], "delegation": GOOD}, model="deepseek-coder-v2:16b"))
+    assert router.requests[0].model == "deepseek-coder-v2:16b" and router.requests[0].sensitive
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        async def installed():
+            return {"deepseek-coder-v2:16b", "qwen3:8b", "llama3.1:8b"}
+        app.state.router.installed = installed
+        ids = [m["id"] for m in c.get("/v1/assistant/models", headers={"X-Api-Key": "test-key"}).json()["models"]]
+        assert ids == ["qwen3:8b", "deepseek-coder-v2:16b", "llama3.1:8b"]

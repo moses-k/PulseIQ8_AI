@@ -259,11 +259,26 @@ async def assistant_tools(x_ai_delegation: Optional[str] = Header(None)):
             "tools": [{"name": t.name, "description": t.description, "args": t.params} for t in tools]}
 
 
+MODEL_LABELS = {"qwen3:8b": ("Qwen3 8B", "Balanced: best for sales questions"),
+                "deepseek-coder-v2:16b": ("DeepSeek Coder V2", "Strong at structured, step-by-step answers; slower")}
+
+
+@app.get("/v1/assistant/models", dependencies=[Depends(require_key)])
+async def assistant_models():
+    """Local models the user may prefer in the assistant (installed in Ollama); the assistant never offers cloud models."""
+    installed = await app.state.router.installed()
+    names = sorted(installed or [])
+    known = [m for m in MODEL_LABELS if m in names] + [m for m in names if m not in MODEL_LABELS]
+    return {"ollama": installed is not None,
+            "models": [{"id": m, "label": MODEL_LABELS.get(m, (m, ""))[0], "hint": MODEL_LABELS.get(m, ("", "Local model"))[1]}
+                       for m in known]}
+
+
 @app.post("/v1/assistant/chat", dependencies=[Depends(require_key)])
 async def assistant_chat(req: AssistantRequest):
     if not any(m.role == "user" and m.content.strip() for m in req.messages):
         raise HTTPException(status_code=400, detail="Ask a question (a user message)")
-    res = await app.state.assistant.ask(req.messages, req.context, req.tier, req.local_only)
+    res = await app.state.assistant.ask(req.messages, req.context, req.tier, req.local_only, req.model)
     if res.get("type") == "error":
         return JSONResponse(status_code=502, content=res)
     return res
@@ -276,7 +291,7 @@ async def assistant_stream(req: AssistantRequest):
         raise HTTPException(status_code=400, detail="Ask a question (a user message)")
 
     async def events():
-        gen = app.state.assistant.run(req.messages, req.context, req.tier, req.local_only)
+        gen = app.state.assistant.run(req.messages, req.context, req.tier, req.local_only, req.model)
         nxt = asyncio.ensure_future(gen.__anext__())
         try:
             while True:

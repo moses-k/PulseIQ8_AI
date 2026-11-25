@@ -133,7 +133,7 @@ class Assistant:
         self.src = source
 
     async def run(self, messages: list[Message], context: dict | None = None, tier: str = "auto",
-                  local_only: bool | None = None) -> AsyncIterator[dict]:
+                  local_only: bool | None = None, model: str | None = None) -> AsyncIterator[dict]:
         """Yields events: step (tool chosen) → result (tool done) … → answer | error."""
         t0 = time.monotonic()
         context = dict(context or {})
@@ -165,7 +165,7 @@ class Assistant:
         for step in range(MAX_STEPS + 1):
             final_turn = step == MAX_STEPS
             extra = [Message(role="user", content="You have used all tool calls. Reply now with the final answer JSON.")] if final_turn else []
-            req = ChatRequest(messages=convo + scratch + extra, system=system, tier=tier, task="assistant.nexora",
+            req = ChatRequest(messages=convo + scratch + extra, system=system, tier=tier, model=model or None, task="assistant.nexora",
                               json_output=True, max_tokens=2000, temperature=0.1, sensitive=sensitive)
             try:
                 res = await self.router.chat(req)
@@ -201,9 +201,9 @@ class Assistant:
                "model": getattr(last, "model", None)}
 
     async def ask(self, messages: list[Message], context: dict | None = None, tier: str = "auto",
-                  local_only: bool | None = None) -> dict:
+                  local_only: bool | None = None, model: str | None = None) -> dict:
         final: dict = {}
-        async for ev in self.run(messages, context, tier, local_only):
+        async for ev in self.run(messages, context, tier, local_only, model):
             if ev["type"] in ("answer", "error"):
                 final = ev
         return final

@@ -76,6 +76,16 @@ def _has_json(text: str) -> bool:
     return False
 
 
+def _thinking_opts(spec: ModelSpec, system: str, max_tokens: int) -> tuple[str, int]:
+    """Qwen3 thinks before answering by default. Outside a thinking tier it is told not to (/no_think: faster, and the
+    JSON answers stay clean); in a thinking tier it gets extra room so the thinking does not eat the answer."""
+    if spec.model.lower().startswith("qwen3") and not spec.thinking:
+        return (system + "\n\n/no_think").strip(), max_tokens
+    if spec.thinking:
+        return system, max_tokens + 4096
+    return system, max_tokens
+
+
 async def _ollama(client, p, spec, system, messages, max_tokens, temperature, json_output, timeout) -> Result:
     """JSON requests: first WITHOUT Ollama's format=json (coding models such as deepseek-coder-v2 often answer only {}
     with it), then once WITH it if the first answer holds no usable JSON."""
@@ -89,6 +99,7 @@ async def _ollama(client, p, spec, system, messages, max_tokens, temperature, js
 
 
 async def _ollama_once(client, p, spec, system, messages, max_tokens, temperature, json_output, timeout) -> Result:
+    system, max_tokens = _thinking_opts(spec, system, max_tokens)
     msgs = [{"role": "system", "content": system}] if system else []
     for m in messages:
         item = {"role": m["role"], "content": m["content"]}
@@ -220,6 +231,7 @@ async def stream(client: httpx.AsyncClient, provider: Provider, spec: ModelSpec,
         usage.update(res.usage)
         yield res.text
         return
+    system, max_tokens = _thinking_opts(spec, system, max_tokens)
     msgs = [{"role": "system", "content": system}] if system else []
     for m in messages:
         item = {"role": m["role"], "content": m["content"]}

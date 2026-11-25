@@ -104,10 +104,10 @@ def test_last_resort_uses_any_installed_model():
 
 
 def test_invalid_json_falls_back_then_escalates():
-    fake = Fake(ALL_LOCAL, bad_json={"qwen3:4b", "llama3.2:3b", "gemma3:4b"})
+    fake = Fake(ALL_LOCAL, bad_json={"qwen3:8b", "qwen3:4b", "llama3.2:3b", "gemma3:4b"})   # every Quick model fails
     res = run(make(fake), user("summarize this", json=True))
     assert res.tier == "general" and "answered by the general tier" in res.route_reason
-    assert res.json_data == {"answer": "from qwen3:8b"}
+    assert res.json_data == {"answer": "from llama3.1:8b"}
 
 
 def test_models_not_pulled_are_skipped():
@@ -301,3 +301,44 @@ def test_stream_endpoint():
         with c.stream("POST", "/v1/chat/stream", json={"messages": [{"role": "user", "content": "hi"}]}, headers={"X-Api-Key": "test-key"}) as s:
             body = "".join(s.iter_text())
         assert body.index("event: meta") < body.index("event: delta") < body.index("event: done")
+
+
+# ---------------- modes (tiers) with Qwen3 ----------------
+
+QWEN = {"FAST_MODEL": "qwen3:8b", "GENERAL_MODEL": "qwen3:8b", "REASONING_MODEL": "qwen3:8b", "CODING_MODEL": "qwen3:8b"}
+
+
+def test_qwen3_answers_directly_except_in_reasoning_mode():
+    fake = Fake(["qwen3:8b"])
+    r = make(fake, **QWEN)
+    run(r, ChatRequest(messages=[Message(role="user", content="hello")], tier="general"))
+    general = fake.calls[-1][2]
+    assert general["messages"][0]["content"].endswith("/no_think")
+    run(r, ChatRequest(messages=[Message(role="user", content="hello")], tier="reasoning", max_tokens=1000))
+    deep = fake.calls[-1][2]
+    assert "/no_think" not in deep["messages"][0]["content"] and deep["options"]["num_predict"] == 1000 + 4096
+
+
+def test_explicit_mode_works_when_routing_is_off():
+    fake = Fake(["qwen3:8b", "llama3.2:3b"])
+    r = make(fake, PULSEIQ8_ROUTING="false", PULSEIQ8_FIXED_MODEL="llama3.2:3b", **QWEN)
+    assert run(r, user("hello")).tier == "fixed"                                                # Auto → fixed model
+    res = run(r, ChatRequest(messages=[Message(role="user", content="hello")], tier="reasoning"))
+    assert res.tier == "reasoning" and res.model == "qwen3:8b"                                  # a chosen mode wins
+
+
+def test_quick_mode_defaults_to_qwen3_8b():
+    fake = Fake(["qwen3:8b"])
+    res = run(make(fake), ChatRequest(messages=[Message(role="user", content="hi")], tier="fast"))
+    assert res.tier == "fast" and res.model == "qwen3:8b"
+
+
+def test_user_can_pick_an_installed_model():
+    fake = Fake(["qwen3:8b", "mistral:7b"])
+    r = make(fake, PULSEIQ8_ROUTING="false", PULSEIQ8_FIXED_MODEL="qwen3:8b")
+    res = run(r, ChatRequest(messages=[Message(role="user", content="hi")], model="mistral:7b"))
+    assert res.model == "mistral:7b" and "chosen by the user" in res.route_reason
+    with pytest.raises(Exception):
+        run(r, ChatRequest(messages=[Message(role="user", content="hi")], model="llama9:70b"))     # not installed
+    evs = stream(r, ChatRequest(messages=[Message(role="user", content="hi")], model="ollama:mistral:7b"))
+    assert evs[0]["type"] == "meta" and evs[0]["model"] == "mistral:7b"

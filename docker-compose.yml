@@ -8,18 +8,20 @@
 #   DOCKER_OLLAMA_URL=http://ollama:11434 docker compose --profile ollama up -d --build
 #   docker compose logs -f ollama-pull              # first run downloads the models in OLLAMA_MODELS
 #
-#   curl -H "X-Api-Key: $KEY" http://localhost:8091/v1/tiers
+#   curl -H "X-Api-Key: $KEY" http://localhost:8092/v1/tiers
 services:
   pulseiq8-ai:
     build: .
     container_name: pulseiq8-ai
     restart: unless-stopped
     ports:
-      - "${PORT:-8091}:8091"   # host port : port inside the container
+      - "${PORT:-8092}:8092"   # host port : port inside the container
     env_file: .env
     environment:
       # inside the container "localhost" is the container itself, so Ollama is reached via the host
       OLLAMA_BASE_URL: ${DOCKER_OLLAMA_URL:-http://host.docker.internal:11434}
+      # data assistant: AnalyticsIQ running on this computer
+      ANALYTICSIQ_URL: ${DOCKER_ANALYTICSIQ_URL:-http://host.docker.internal:8090/api}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

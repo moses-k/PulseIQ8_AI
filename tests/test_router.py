@@ -269,3 +269,35 @@ def test_keys_created_in_the_service(tmp_path, monkeypatch):
         assert made["key"] not in (tmp_path / "keys.json").read_text()           # only the hash is stored
         assert c.delete(f"/v1/keys/{made['id']}", headers=h).status_code == 200
         assert c.get("/v1/tiers", headers=new).status_code == 401                # revoked
+
+
+# ---------------- streaming (/v1/chat/stream) ----------------
+
+def stream(router, req):
+    async def go():
+        return [ev async for ev in router.chat_stream(req)]
+    return asyncio.run(go())
+
+
+def test_stream_meta_delta_done_with_fallback():
+    fake = Fake(ALL_LOCAL, broken={"deepseek-coder-v2:16b"})
+    evs = stream(make(fake), user("fix this swift function"))
+    types = [e["type"] for e in evs]
+    assert types[0] == "meta" and types[-1] == "done" and "delta" in types
+    assert evs[0]["model"] == "qwen2.5-coder:14b"          # the broken model was skipped before any text
+    assert "".join(e["text"] for e in evs if e["type"] == "delta")
+
+
+def test_stream_reports_error_when_nothing_answers():
+    evs = stream(make(Fake([])), user("hello there"))
+    assert evs[-1]["type"] == "error" and "No model could answer" in evs[-1]["message"]
+
+
+def test_stream_endpoint():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        app.state.router = make(Fake(ALL_LOCAL))
+        with c.stream("POST", "/v1/chat/stream", json={"messages": [{"role": "user", "content": "hi"}]}, headers={"X-Api-Key": "test-key"}) as s:
+            body = "".join(s.iter_text())
+        assert body.index("event: meta") < body.index("event: delta") < body.index("event: done")

@@ -10,6 +10,13 @@
   GET  /v1/usage                   calls per tier / model, latency, failures (last 24 h)
   POST /v1/chat/completions        OpenAI-compatible (model = pulseiq8-auto|fast|coding|general|reasoning|vision)
   GET  /v1/models                  OpenAI-compatible model list
+  GET  /assistant                  data assistant test page (needs a delegation from AnalyticsIQ)
+  GET  /v1/assistant/tools         the approved AnalyticsIQ tools for the user in X-AI-Delegation
+  POST /v1/assistant/chat          ask a question; the assistant fetches data with tools and answers
+  POST /v1/assistant/chat/stream   the same as server-sent events: step → result … → answer | error
+  GET  /whatsapp/webhook           Meta WhatsApp Cloud API subscription check (hub.verify_token)
+  POST /whatsapp/webhook           Meta WhatsApp messages (signed with the app secret) → Nexora AI answers on WhatsApp
+  GET  /v1/whatsapp/status         which WhatsApp settings are present
 Every /v1 call needs X-Api-Key (or Authorization: Bearer <key>).
 """
 from __future__ import annotations
@@ -27,14 +34,19 @@ from typing import Optional
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from pathlib import Path
 
 from . import __version__, config
 from .keys import KeyStore
 from .router import NoModelError, Router
-from .schemas import ChatRequest, ChatResponse, Image, Message, TaskRequest
+from .assistant.agent import Assistant
+from .assistant.source import AnalyticsIQ
+from .assistant.tools import Ctx as ToolCtx
+from .assistant.source import SourceError
+from .channels.whatsapp import WhatsApp
+from .schemas import AssistantRequest, ChatRequest, ChatResponse, Image, Message, TaskRequest
 from .tasks import TASK_TIERS, TASKS, build_user_message
 from .usage import Usage
 
@@ -60,6 +72,8 @@ async def lifespan(app: FastAPI):
         app.state.settings = settings
         app.state.usage = Usage()
         app.state.router = Router(settings, client, app.state.usage, TASK_TIERS)
+        app.state.assistant = Assistant(app.state.router, AnalyticsIQ(client))
+        app.state.whatsapp = WhatsApp(client, app.state.assistant, app.state.assistant.src)
         app.state.keys = KeyStore(os.environ.get("PULSEIQ8_KEYS_FILE",
                                                  Path(__file__).resolve().parent.parent / "data" / "keys.json"))
         yield
@@ -112,6 +126,12 @@ async def chat_ui():
 async def console():
     """Models, routing status and usage (the API key is typed in the page)."""
     return FileResponse(Path(__file__).parent / "static" / "console.html")
+
+
+@app.get("/assistant", include_in_schema=False)
+async def assistant_ui():
+    """Data assistant chat over AnalyticsIQ (the API key is typed in the page)."""
+    return FileResponse(Path(__file__).parent / "static" / "assistant.html")
 
 
 @app.get("/health")
@@ -220,6 +240,93 @@ async def vision(file: UploadFile = File(...), question: str = Form("What does t
 @app.get("/v1/usage", dependencies=[Depends(require_key)])
 async def usage(hours: float = 24):
     return app.state.usage.summary(max(0.1, min(hours, 24 * 7)))
+
+
+# ---------------- data assistant (AnalyticsIQ) ----------------
+
+@app.get("/v1/assistant/tools", dependencies=[Depends(require_key)])
+async def assistant_tools(x_ai_delegation: Optional[str] = Header(None)):
+    """The tools for the user in X-AI-Delegation (from AnalyticsIQ's approved catalogue) plus system_help."""
+    a: Assistant = app.state.assistant
+    if not x_ai_delegation:
+        return {"source": a.src.title, "api": a.src.base, "connected": a.src.configured, "tools": [],
+                "note": "send X-AI-Delegation (issued by AnalyticsIQ for a user) to list that user's tools"}
+    try:
+        tools = await ToolCtx(a.src, x_ai_delegation).tools()
+    except SourceError as e:
+        raise HTTPException(status_code=e.status or 502, detail=str(e))
+    return {"source": a.src.title, "api": a.src.base, "connected": True,
+            "tools": [{"name": t.name, "description": t.description, "args": t.params} for t in tools]}
+
+
+@app.post("/v1/assistant/chat", dependencies=[Depends(require_key)])
+async def assistant_chat(req: AssistantRequest):
+    if not any(m.role == "user" and m.content.strip() for m in req.messages):
+        raise HTTPException(status_code=400, detail="Ask a question (a user message)")
+    res = await app.state.assistant.ask(req.messages, req.context, req.tier, req.local_only)
+    if res.get("type") == "error":
+        return JSONResponse(status_code=502, content=res)
+    return res
+
+
+@app.post("/v1/assistant/chat/stream", dependencies=[Depends(require_key)])
+async def assistant_stream(req: AssistantRequest):
+    """Server-sent events: step (tool chosen) → result (tool done) … → answer | error; ': ping' every 10 s."""
+    if not any(m.role == "user" and m.content.strip() for m in req.messages):
+        raise HTTPException(status_code=400, detail="Ask a question (a user message)")
+
+    async def events():
+        gen = app.state.assistant.run(req.messages, req.context, req.tier, req.local_only)
+        nxt = asyncio.ensure_future(gen.__anext__())
+        try:
+            while True:
+                done, _ = await asyncio.wait({nxt}, timeout=10)
+                if not done:
+                    yield ": ping\n\n"
+                    continue
+                try:
+                    ev = nxt.result()
+                except StopAsyncIteration:
+                    break
+                yield f"event: {ev['type']}\ndata: {json.dumps(ev, default=str)}\n\n"
+                nxt = asyncio.ensure_future(gen.__anext__())
+        finally:
+            if not nxt.done():
+                nxt.cancel()
+            await gen.aclose()
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------- WhatsApp (Meta Cloud API) ----------------
+
+@app.get("/whatsapp/webhook", include_in_schema=False)
+async def whatsapp_verify(request: Request):
+    q = request.query_params
+    challenge = app.state.whatsapp.verify(q.get("hub.mode"), q.get("hub.verify_token"), q.get("hub.challenge"))
+    if challenge is None:
+        raise HTTPException(status_code=403, detail="Verification failed")
+    return PlainTextResponse(challenge)
+
+
+@app.post("/whatsapp/webhook", include_in_schema=False)
+async def whatsapp_webhook(request: Request):
+    """Meta delivers messages here. Only signed payloads are accepted; work happens in the background."""
+    wa: WhatsApp = app.state.whatsapp
+    body = await request.body()
+    if not wa.signature_ok(body, request.headers.get("X-Hub-Signature-256")):
+        raise HTTPException(status_code=401, detail="Bad signature")
+    try:
+        payload = json.loads(body or b"{}")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Bad JSON")
+    return {"queued": wa.accept(payload)}
+
+
+@app.get("/v1/whatsapp/status", dependencies=[Depends(require_key)])
+async def whatsapp_status():
+    return app.state.whatsapp.status()
 
 
 # ---------------- OpenAI-compatible (aider, IDE plugins, any OpenAI SDK) ----------------

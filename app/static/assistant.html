@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PulseIQ Sales Assistant</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f8f6a'/%3E%3Cpath d='M5 17h5l3-7 5 13 3-6h6' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#f8f7f3;--panel:#fff;--ink:#1c1c1b;--muted:#6b6a66;--faint:#9b9993;--line:#e2dfd7;--chip:#efede7;--hover:#e7e4dc;
+  --accent:#1f8f6a;--accent-ink:#fff;--soft:#e3f2ec;--bad:#c2410c;--code:#f1efe9;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--serif:ui-serif,"Iowan Old Style",Palatino,Georgia,serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+:root[data-theme="dark"]{--bg:#1a1a19;--panel:#2a2a28;--ink:#ecebe6;--muted:#a3a19a;--faint:#7a7872;--line:#353532;--chip:#262624;--hover:#2b2b29;
+  --accent:#3fb88d;--accent-ink:#0e1d17;--soft:#1f3a30;--bad:#f2895c;--code:#161615}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+button{font:inherit;color:inherit;cursor:pointer}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line)}
+header h1{font:500 22px/1 var(--serif);margin:0;flex:1;display:flex;align-items:center;gap:10px}
+header h1 small{font:13px var(--sans);color:var(--muted)}
+.hbtn{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:6px 12px;font-size:13.5px;text-decoration:none;color:var(--ink)}
+main{flex:1;overflow-y:auto}
+.col{max-width:860px;margin:0 auto;padding:24px 20px 140px}
+.hello{text-align:center;margin:8vh 0 24px}.hello h2{font:400 34px/1.2 var(--serif);margin:0 0 6px}.hello p{color:var(--muted);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:18px}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 14px;font-size:13.5px}
+.chip:hover{background:var(--hover)}
+.msg{margin:18px 0}.me{display:flex;justify-content:flex-end}
+.me div{background:var(--chip);border-radius:16px 16px 4px 16px;padding:9px 14px;max-width:80%;white-space:pre-wrap}
+.ai{line-height:1.65}.ai p{margin:.4em 0}.ai ul,.ai ol{margin:.3em 0;padding-left:1.4em}.ai code{background:var(--code);padding:1px 5px;border-radius:5px;font:13px var(--mono)}
+.ai h3,.ai h4{margin:.8em 0 .3em;font-size:16px}
+.steps{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:8px 12px;margin-bottom:10px;font-size:13px;color:var(--muted)}
+.steps summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center}.steps summary::-webkit-details-marker{display:none}
+.step{display:flex;gap:8px;align-items:baseline;padding:3px 0}.step b{color:var(--ink);font-weight:600}.step .ok{color:var(--accent)}.step .bad{color:var(--bad)}
+.step code{font:12px var(--mono);color:var(--faint)}
+.spin{width:12px;height:12px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:s 0.8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}th{background:var(--chip);font-weight:600}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}.chart h4{margin:0 0 6px;font-size:14px}
+.meta{font-size:12px;color:var(--faint);margin-top:6px}
+.err{color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,transparent);border-radius:10px;padding:8px 12px}
+footer{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding:20px 20px 18px}
+.box{max-width:860px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:10px 10px 10px 16px;display:flex;gap:10px;align-items:flex-end;box-shadow:0 4px 18px rgba(0,0,0,.06)}
+textarea{flex:1;border:0;background:none;resize:none;font:inherit;color:var(--ink);outline:none;max-height:180px;padding:6px 0}
+.send{width:38px;height:38px;border-radius:12px;border:0;background:var(--accent);color:var(--accent-ink);font-size:18px}
+.send:disabled{opacity:.4;cursor:default}
+.opts{max-width:860px;margin:6px auto 0;font-size:12.5px;color:var(--muted);display:flex;gap:14px;align-items:center}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);padding:18px;width:min(420px,92vw)}
+dialog input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;margin:8px 0 12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>PulseIQ Sales Assistant <small id="src">AnalyticsIQ</small></h1>
+  <a class="hbtn" href="/">General chat</a>
+  <button class="hbtn" id="keyBtn">API key</button>
+  <button class="hbtn" id="newBtn">New chat</button>
+  <button class="hbtn" id="themeBtn" aria-label="Toggle theme">◐</button>
+</header>
+<main id="main"><div class="col" id="col"></div></main>
+<footer>
+  <div class="box"><textarea id="q" rows="1" placeholder="Ask about sales, targets, reps, regions, customers or claims…"></textarea><button class="send" id="send" aria-label="Send">↑</button></div>
+  <div class="opts"><label><input type="checkbox" id="local" checked> Local models only</label><span id="status"></span></div>
+</footer>
+<dialog id="keyDlg"><b>PulseIQ8_AI API key</b><div style="font-size:13px;color:var(--muted)">Stored in this browser only (same key as the main chat).</div>
+  <input id="keyIn" type="password" autocomplete="off"><div style="display:flex;gap:8px;justify-content:flex-end"><button class="hbtn" id="keyCancel">Cancel</button><button class="hbtn" id="keySave">Save</button></div></dialog>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const store = { get: (k, d) => { try { const v = localStorage.getItem('piq8.' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
+                  set: (k, v) => { try { localStorage.setItem('piq8.' + k, JSON.stringify(v)); } catch (_) {} } };
+  const key = () => store.get('key', '');
+  let history = [], busy = false;
+  const SUGGEST = ['How are we doing against target this month?', 'Which regions are furthest behind target?',
+    'Top 10 reps this month, direct vs claims', 'Compare segment sales this month with last month',
+    'Which key customers have not bought in the last 7 days?', 'Show daily sales trend for HOSPITAL'];
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function md(text) {
+    const lines = esc(text).split('\n'); let html = '', list = null;
+    const inline = (s) => s.replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*([^*]+)\*(?=\W|$)/g, '$1<i>$2</i>');
+    const close = () => { if (list) { html += `</${list}>`; list = null; } };
+    for (const l of lines) {
+      let m;
+      if ((m = l.match(/^\s*[-*•]\s+(.*)/))) { if (list !== 'ul') { close(); html += '<ul>'; list = 'ul'; } html += `<li>${inline(m[1])}</li>`; }
+      else if ((m = l.match(/^\s*\d+[.)]\s+(.*)/))) { if (list !== 'ol') { close(); html += '<ol>'; list = 'ol'; } html += `<li>${inline(m[1])}</li>`; }
+      else if ((m = l.match(/^#{1,4}\s+(.*)/))) { close(); html += `<h4>${inline(m[1])}</h4>`; }
+      else if (l.trim() === '') { close(); }
+      else { close(); html += `<p>${inline(l)}</p>`; }
+    }
+    close(); return html;
+  }
+  const fmt = (v) => typeof v === 'number' ? (Number.isInteger(v) && Math.abs(v) < 10000 ? String(v) : v.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : esc(v);
+  function table(t) {
+    return `<table><thead><tr>${t.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${t.rows.map((r) =>
+      `<tr>${r.map((v) => `<td class="${typeof v === 'number' ? 'n' : ''}">${fmt(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+  function chart(c) {
+    const W = 760, H = 240, L = 70, B = 40, T = 10, n = c.x.length; if (!n) return '';
+    const vals = c.series.flatMap((s) => s.values.filter((v) => v != null)); const max = Math.max(1, ...vals);
+    const colors = ['#1f8f6a', '#5b8cff', '#e6a23c', '#a855f7', '#e5484d', '#14b8a6'];
+    const x = (i) => L + (i + 0.5) * (W - L - 10) / n, y = (v) => T + (H - T - B) * (1 - v / max);
+    let g = [0, .25, .5, .75, 1].map((f) => `<line x1="${L}" x2="${W - 10}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(max * f) + 4}" text-anchor="end" font-size="10" fill="var(--faint)">${(max * f / (max >= 1e6 ? 1e6 : max >= 1e3 ? 1e3 : 1)).toFixed(max >= 1e3 ? 1 : 0)}${max >= 1e6 ? 'M' : max >= 1e3 ? 'K' : ''}</text>`).join('');
+    const step = Math.ceil(n / 12);
+    g += c.x.map((lab, i) => i % step ? '' : `<text x="${x(i)}" y="${H - B + 16}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(String(lab).slice(0, 12))}</text>`).join('');
+    const bw = (W - L - 10) / n / (c.series.length + 1);
+    c.series.forEach((s, si) => {
+      if (c.type === 'line') g += `<polyline fill="none" stroke="${colors[si]}" stroke-width="2.5" points="${s.values.map((v, i) => v == null ? '' : `${x(i)},${y(v)}`).join(' ')}"/>`;
+      else g += s.values.map((v, i) => v == null ? '' : `<rect x="${x(i) - bw * c.series.length / 2 + si * bw}" y="${y(v)}" width="${bw * .9}" height="${H - B - y(v)}" rx="3" fill="${colors[si]}"><title>${esc(c.x[i])}: ${fmt(v)}</title></rect>`).join('');
+    });
+    const legend = c.series.length > 1 ? `<div class="meta">${c.series.map((s, i) => `<span style="color:${colors[i]}">●</span> ${esc(s.name)}`).join(' &nbsp; ')}</div>` : '';
+    return `<div class="chart">${c.title ? `<h4>${esc(c.title)}</h4>` : ''}<svg viewBox="0 0 ${W} ${H}" width="100%">${g}</svg>${legend}</div>`;
+  }
+  const TOOLNAMES = { list_filters: 'Checking names and dates', sales_overview: 'Fetching sales overview', breakdown: 'Fetching breakdown',
+    daily_sales: 'Fetching daily sales', sales_lines: 'Fetching sales lines', targets: 'Fetching targets', rep_performance: 'Fetching rep performance',
+    claims: 'Fetching claims', customers: 'Fetching customers', compare_periods: 'Comparing periods' };
+  function stepsHtml(steps, live) {
+    if (!steps.length && !live) return '';
+    const rows = steps.map((s) => `<div class="step">${s.done ? (s.ok ? '<span class="ok">✓</span>' : '<span class="bad">✕</span>') : '<span class="spin"></span>'}
+      <span><b>${esc(TOOLNAMES[s.tool] || s.tool)}</b> ${s.done ? `· ${esc(s.summary)} · ${s.ms} ms` : esc(s.why || '')}
+      <br><code>${esc(JSON.stringify(s.args))}</code></span></div>`).join('');
+    const head = live ? `<span class="spin"></span> Working… ${steps.length} step${steps.length === 1 ? '' : 's'}` : `▸ Used ${steps.length} data step${steps.length === 1 ? '' : 's'}`;
+    return `<details class="steps" ${live ? 'open' : ''}><summary>${head}</summary>${rows}</details>`;
+  }
+  function render() {
+    const col = $('col');
+    if (!history.length) {
+      col.innerHTML = `<div class="hello"><h2>Ask your sales data</h2><p>I fetch figures from AnalyticsIQ and explain them. Nothing is changed.</p>
+        <div class="chips">${SUGGEST.map((s) => `<button class="chip">${esc(s)}</button>`).join('')}</div></div>`;
+      col.querySelectorAll('.chip').forEach((b) => b.onclick = () => send(b.textContent));
+      return;
+    }
+    col.innerHTML = history.map((m) => m.role === 'user' ? `<div class="msg me"><div>${esc(m.content)}</div></div>` : `<div class="msg">
+      ${stepsHtml(m.steps || [], m.live)}
+      ${m.error ? `<div class="err">${esc(m.error)}</div>` : ''}
+      ${m.answer ? `<div class="ai">${md(m.answer)}</div>` : ''}
+      ${m.table ? table(m.table) : ''}${m.chart ? chart(m.chart) : ''}
+      ${m.followups ? `<div class="chips" style="justify-content:flex-start">${m.followups.map((f) => `<button class="chip fu">${esc(f)}</button>`).join('')}</div>` : ''}
+      ${m.model ? `<div class="meta">${esc(m.model)} · ${esc(m.tier)} · ${(m.latency_ms / 1000).toFixed(1)} s</div>` : ''}</div>`).join('');
+    col.querySelectorAll('.fu').forEach((b) => b.onclick = () => send(b.textContent));
+    $('main').scrollTop = $('main').scrollHeight;
+  }
+  async function send(text) {
+    text = (text ?? $('q').value).trim();
+    if (!text || busy) return;
+    if (!key()) { $('keyDlg').showModal(); return; }
+    $('q').value = ''; busy = true; $('send').disabled = true;
+    const convo = history.filter((m) => m.role === 'user' || m.answer).map((m) => ({ role: m.role, content: m.role === 'user' ? m.content : m.answer }));
+    history.push({ role: 'user', content: text });
+    const ai = { role: 'assistant', steps: [], live: true }; history.push(ai); render();
+    try {
+      const res = await fetch('/v1/assistant/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': key() },
+        body: JSON.stringify({ messages: [...convo, { role: 'user', content: text }], local_only: $('local').checked, context: {} }) });
+      if (!res.ok) throw new Error(res.status === 401 ? 'Wrong or missing API key' : `Error ${res.status}: ${await res.text()}`);
+      const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+          const data = chunk.split('\n').filter((l) => l.startsWith('data: ')).map((l) => l.slice(6)).join('');
+          if (!data) continue;
+          const ev = JSON.parse(data);
+          if (ev.type === 'step') ai.steps.push({ tool: ev.tool, args: ev.args, why: ev.why });
+          else if (ev.type === 'result') Object.assign(ai.steps[ai.steps.length - 1] || {}, { done: true, ok: ev.ok, ms: ev.ms, summary: ev.summary });
+          else if (ev.type === 'answer') Object.assign(ai, ev, { live: false });
+          else if (ev.type === 'error') Object.assign(ai, { error: ev.error, live: false });
+          render();
+        }
+      }
+    } catch (e) { Object.assign(ai, { error: e.message, live: false }); }
+    ai.live = false; busy = false; $('send').disabled = false; render();
+  }
+  $('send').onclick = () => send();
+  $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  $('q').addEventListener('input', () => { $('q').style.height = 'auto'; $('q').style.height = $('q').scrollHeight + 'px'; });
+  $('newBtn').onclick = () => { if (!busy) { history = []; render(); } };
+  $('keyBtn').onclick = () => { $('keyIn').value = key(); $('keyDlg').showModal(); };
+  $('keyCancel').onclick = () => $('keyDlg').close();
+  $('keySave').onclick = () => { store.set('key', $('keyIn').value.trim()); $('keyDlg').close(); loadInfo(); };
+  const theme = (t) => { document.documentElement.dataset.theme = t; store.set('theme', t); };
+  theme(store.get('theme', '') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  $('themeBtn').onclick = () => theme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+  async function loadInfo() {
+    if (!key()) { $('status').textContent = 'Set the API key to start'; return; }
+    try { const r = await fetch('/v1/assistant/tools', { headers: { 'X-Api-Key': key() } }); if (!r.ok) throw 0;
+      const j = await r.json(); $('src').textContent = `${j.source} · ${j.connected ? 'connected' : 'not connected'}`; $('status').textContent = 'Test page only: answers need a signed-in AnalyticsIQ user — use Ask AI in AnalyticsIQ or WhatsApp';
+    } catch (_) { $('status').textContent = 'Could not reach the assistant (check the API key)'; }
+  }
+  render(); loadInfo();
+})();
+</script>
+</body>
+</html>

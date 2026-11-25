@@ -55,6 +55,14 @@ class ChatResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class AssistantRequest(BaseModel):
+    """Data assistant: a conversation about the sales data (the last user message is the question)."""
+    messages: list[Message]
+    context: dict[str, Any] = Field(default_factory=dict, description="what the user is looking at, e.g. {from, to, region, segment, rep, page}")
+    tier: Literal["auto", "fast", "general", "reasoning"] = "auto"
+    local_only: Optional[bool] = Field(None, description="true = local models only (default from ASSISTANT_LOCAL_ONLY, true)")
+
+
 class TaskRequest(BaseModel):
     data: Optional[Any] = None
     question: Optional[str] = None

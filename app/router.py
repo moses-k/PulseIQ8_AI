@@ -183,10 +183,8 @@ class Router:
 
     # ---------------- the call ----------------
 
-    async def chat(self, req: ChatRequest) -> ChatResponse:
-        t0 = time.monotonic()
-        if not self.s.routing:
-            return await self._fixed(req, t0)
+    async def _plan(self, req: ChatRequest):
+        """Route the request: (route, system prompt, messages, [(tier, model) in the order to try])."""
         route = decide(req, self.task_tiers)
         if not route.confident and self.s.llm_classifier:
             tier = await self.classify(req)
@@ -196,7 +194,6 @@ class Router:
         tokens = estimate_tokens(req, system)
         escalate = self.s.escalate if req.escalate is None else req.escalate
         chain = [route.tier] + (ESCALATION[route.tier] if escalate else [])
-        attempts: list[Attempt] = []
         base_msgs = [m.model_dump() for m in req.messages if m.role != "system"]
         sys_extra = "\n\n".join(m.content for m in req.messages if m.role == "system")
         if sys_extra:
@@ -218,6 +215,14 @@ class Router:
                         plan.append((tier_name, spec))
             if plan:
                 route = Route(route.tier, f"{route.reason}; no {route.tier} model installed, used what is available")
+        return route, system, base_msgs, plan
+
+    async def chat(self, req: ChatRequest) -> ChatResponse:
+        t0 = time.monotonic()
+        if not self.s.routing:
+            return await self._fixed(req, t0)
+        route, system, base_msgs, plan = await self._plan(req)
+        attempts: list[Attempt] = []
         for tier, spec in plan:
             msgs = base_msgs
             if spec.cloud:   # personal data never leaves for a cloud provider unmasked
@@ -286,6 +291,66 @@ class Router:
         return ChatResponse(text=res.text, json=parsed, tier="fixed", model=spec.model, provider=spec.provider,
                             route_reason="routing off — fixed model", latency_ms=int((time.monotonic() - t0) * 1000),
                             attempts=[Attempt(tier="fixed", model=spec.key, ok=True, ms=ms)], usage=res.usage)
+
+    async def chat_stream(self, req: ChatRequest):
+        """Streams one answer as events: meta (model chosen) → delta (text pieces) … → done | error.
+        Same routing, privacy masking and fallback as chat(); a model that fails before writing anything is
+        skipped for the next one, a failure after text was sent ends the stream with an error."""
+        t0 = time.monotonic()
+        if not self.s.routing:
+            spec = self.s.fixed
+            if spec is None:
+                yield {"type": "error", "message": "Routing is off but router.fixed has no model (set PULSEIQ8_FIXED_MODEL)"}
+                return
+            if spec.cloud and (self.s.data_policy == "local_only" or req.sensitive):
+                yield {"type": "error", "message": f"The fixed model {spec.key} is a cloud model, which the data policy does not allow"}
+                return
+            await self.installed()
+            system = "\n\n".join(x for x in (req.system, privacy.INJECTION_GUARD) if x)
+            sys_extra = "\n\n".join(m.content for m in req.messages if m.role == "system")
+            if sys_extra:
+                system = sys_extra + "\n\n" + system
+            route, base_msgs, plan = Route("fixed", "routing off — fixed model"), [m.model_dump() for m in req.messages if m.role != "system"], [("fixed", spec)]
+        else:
+            try:
+                route, system, base_msgs, plan = await self._plan(req)
+            except Exception as e:  # noqa: BLE001 — report, never break the stream
+                yield {"type": "error", "message": str(e)[:300]}
+                return
+        errors: list[str] = []
+        for tier, spec in plan:
+            msgs = base_msgs
+            if spec.cloud:
+                msgs = [{**m, "content": privacy.mask(m["content"])} for m in base_msgs]
+            why = route.reason if tier == route.tier else f"{route.reason}; answered by the {tier} tier"
+            usage: dict = {}
+            a0 = time.monotonic()
+            sent = False
+            try:
+                async for piece in providers.stream(self.client, self.s.providers[spec.provider], spec, system, msgs,
+                                                    max_tokens=req.max_tokens, temperature=req.temperature,
+                                                    timeout=self.s.request_timeout, usage=usage):
+                    if not sent:
+                        yield {"type": "meta", "tier": tier, "model": spec.model, "provider": spec.provider, "route_reason": why}
+                        sent = True
+                    yield {"type": "delta", "text": piece}
+                if not sent:
+                    raise providers.ProviderError("empty answer")
+            except (providers.ProviderError, asyncio.TimeoutError, httpx.HTTPError) as e:
+                ms = int((time.monotonic() - a0) * 1000)
+                self._failed(spec)
+                self.usage.record(req.task, tier, spec.key, False, ms, {}, str(e))
+                if sent:
+                    yield {"type": "error", "message": f"{spec.model} stopped: {str(e)[:300]}"}
+                    return
+                errors.append(f"{spec.key}: {str(e)[:200]}")
+                continue
+            ms = int((time.monotonic() - a0) * 1000)
+            self._fails[spec.key] = 0
+            self.usage.record(req.task, tier, spec.key, True, ms, usage, None)
+            yield {"type": "done", "latency_ms": int((time.monotonic() - t0) * 1000), "usage": usage}
+            return
+        yield {"type": "error", "message": f"No model could answer ({route.tier}): " + ("; ".join(errors) or "no model is available for this tier")}
 
     def _failed(self, spec: ModelSpec) -> None:
         n = self._fails.get(spec.key, 0) + 1

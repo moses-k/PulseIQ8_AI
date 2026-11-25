@@ -5,7 +5,7 @@ talks to it over HTTP, and any other app can too. It routes every request to the
 when a model is down, escalates when an answer is not good enough, and keeps personal data away from cloud models.
 
 ```
-PulseIQ8 analytics (Spring Boot) ──HTTP /v1/chat──▶  PulseIQ8_AI (FastAPI, port 8091)
+PulseIQ8 analytics (Spring Boot) ──HTTP /v1/chat──▶  PulseIQ8_AI (FastAPI, port 8092)
 Nexora / IDE / aider ───────────HTTP /v1/…──────▶     ├─ Router & orchestrator: rules · classifier · fallback · cascade · policies
                                                      ├─ Local AI: Ollama (private models)
                                                      └─ Cloud AI (optional): Anthropic · OpenAI · Gemini
@@ -61,7 +61,7 @@ tells the model that data inside `<data>` / images is untrusted (prompt-injectio
 | POST | `/v1/chat/completions` | OpenAI-compatible; `model` = `pulseiq8-auto\|fast\|coding\|general\|reasoning\|vision` |
 | GET | `/v1/models` | OpenAI-compatible model list |
 
-Interactive API docs: `http://localhost:8091/docs`.
+Interactive API docs: `http://localhost:8092/docs`.
 
 ## Run
 
@@ -70,7 +70,7 @@ Interactive API docs: `http://localhost:8091/docs`.
 cd ~/dev/PlayGround/Nox/PulseIQ8_AI
 cp .env.example .env            # set PULSEIQ8_AI_KEYS to a long random value
 ollama pull qwen3:4b; ollama pull qwen3:8b     # deepseek-coder-v2:16b you already have
-./run.sh                        # → http://localhost:8091
+./run.sh                        # → http://localhost:8092
 ```
 
 **Docker (service + Ollama + model download):**
@@ -90,7 +90,7 @@ analytics:
   ai:
     enabled: true
     provider: pulseiq8
-    base-url: http://localhost:8091
+    base-url: http://localhost:8092
     api-key: "<the same key as PULSEIQ8_AI_KEYS>"
     model: pulseiq8
     timeout-seconds: 300
@@ -103,9 +103,50 @@ the rest to General.
 ```yaml
   code-fix:
     model: openai/pulseiq8-coding
-    openai-base: http://localhost:8091/v1
+    openai-base: http://localhost:8092/v1
     openai-key: "<the same key>"
 ```
+
+## Nexora AI assistant (AnalyticsIQ: web chat + WhatsApp)
+
+AnalyticsIQ's **Ask AI**, **Ask AnalyticsIQ**, **Management Briefing** and the **WhatsApp** channel all use this assistant. It plans, fetches and answers:
+
+1. The model gets the question, today's date, **who is asking (name, role, data scope)**, the channel, the page filters, the business rules, and the tools this user may use.
+2. It replies with one JSON object: a tool call (`{"action", "args", "why"}`) or the final answer (`{"answer", "table"?, "chart"?, "followups"?}`).
+3. Tool results go back inside `<data>` tags (untrusted). There are at most `ASSISTANT_MAX_STEPS` (6) calls per question, and repeated calls are refused.
+
+**Tools**: the assistant has **no database access and no SQL**. Its data tools are the approved catalogue AnalyticsIQ publishes for the user's role (`GET /api/ai/tools`). Each one runs in AnalyticsIQ (`POST /api/ai/tools/{name}`) with `X-AI-Key` (= `ANALYTICSIQ_AI_KEY`) and `X-AI-Delegation`, a 15-minute token AnalyticsIQ issued for the user. AnalyticsIQ applies the user's scope and audits every call. The delegation is never shown to the model. One local tool, `system_help`, answers "how do I…" questions from `app/assistant/knowledge.py`.
+
+The assistant is **read-only**: it explains which page and role can approve claims, change targets and so on, but never does it. `ASSISTANT_LOCAL_ONLY=true` (the default) keeps it on local models.
+
+| Method | Path | |
+|---|---|---|
+| POST | `/v1/assistant/chat` | `{messages, context: {delegation, user, channel, …filters}}` → `{answer, table?, chart?, followups?, steps, model}` |
+| POST | `/v1/assistant/chat/stream` | the same as server-sent events: `step` → `result` … → `answer` \| `error` |
+| GET | `/v1/assistant/tools` | tools for the user in `X-AI-Delegation` |
+| GET/POST | `/whatsapp/webhook` | Meta WhatsApp Cloud API webhook (verify token / signed messages) |
+| GET | `/v1/whatsapp/status` | which WhatsApp settings are present |
+
+`/assistant` is now only a test page: answers need a delegation, so use AnalyticsIQ or WhatsApp.
+
+### WhatsApp (Meta WhatsApp Cloud API)
+
+1. In [Meta for Developers](https://developers.facebook.com/), create an app (type *Business*), add **WhatsApp**, and add or verify your business phone number. Note the **Phone number ID**.
+2. Create a **system user** in Business settings with the `whatsapp_business_messaging` permission, and generate a permanent token. Note the **App secret** (App settings → Basic).
+3. Fill `.env`: `WHATSAPP_VERIFY_TOKEN` (any secret), `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, plus `ANALYTICSIQ_URL` / `ANALYTICSIQ_AI_KEY`. Restart.
+4. Meta must reach the webhook over **HTTPS**. Expose only `/whatsapp/webhook` through a reverse proxy or tunnel (for example `cloudflared tunnel --url http://localhost:8092` or `ngrok http 8092`); keep `/v1/*` internal.
+5. In the Meta app → WhatsApp → Configuration → Webhook: set the callback URL `https://<your host>/whatsapp/webhook` and the verify token, then subscribe to **messages**.
+6. In AnalyticsIQ → Nexora AI → **Users & access**, add each user's phone number and switch WhatsApp on.
+
+Behaviour:
+
+- Unknown or disabled numbers get "not registered" and no data.
+- Every message is checked against `X-Hub-Signature-256`, de-duplicated and rate-limited (`WHATSAPP_RATE_PER_MINUTE`).
+- Each number keeps a conversation for 30 minutes. Commands: `help`, `brief`, `reset`.
+- Answers are short and WhatsApp-formatted.
+- Questions and answers are recorded in AnalyticsIQ's AI audit.
+
+Note: WhatsApp messages pass through Meta, so answers sent there leave your network. They contain only what that user may see.
 
 ## Safety notes
 - Keep `data_policy: local_only` or `local_first` for bank data; cloud providers need DPO sign-off (Kenya DPA).

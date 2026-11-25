@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from . import gate, privacy, providers
+from . import privacy, providers
 from .config import ModelSpec, Settings
 from .schemas import Attempt, ChatRequest, ChatResponse
 from .usage import Usage
@@ -84,7 +84,6 @@ def estimate_tokens(req: ChatRequest, system: str) -> int:
 
 
 def extract_json(text: str):
-    """The first NON-EMPTY JSON object / array in the text ({} or [] count as no answer)."""
     t = (text or "").strip()
     if t.startswith("```"):
         t = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", t)
@@ -92,11 +91,9 @@ def extract_json(text: str):
         a, b = t.find(opener), t.rfind(closer)
         if a >= 0 and b > a:
             try:
-                v = json.loads(t[a:b + 1])
+                return json.loads(t[a:b + 1])
             except ValueError:
                 continue
-            if v:
-                return v
     return None
 
 
@@ -188,7 +185,6 @@ class Router:
 
     async def chat(self, req: ChatRequest) -> ChatResponse:
         t0 = time.monotonic()
-        gate.priority.set(gate.priority_for(req.task))
         if not self.s.routing:
             return await self._fixed(req, t0)
         route = decide(req, self.task_tiers)
@@ -253,74 +249,6 @@ class Router:
         detail = "; ".join(f"{a.model}: {a.error}" for a in attempts) or "no model is available for this tier"
         raise NoModelError(f"No model could answer ({route.tier}): {detail}")
 
-    # ---------------- streaming (chat UI) ----------------
-
-    async def chat_stream(self, req: ChatRequest):
-        """Like chat(), but yields events: meta (which model) → delta (pieces of text) … → done | error.
-        Falls back to the next model only while nothing has been sent yet."""
-        t0 = time.monotonic()
-        prio = gate.priority_for(req.task)
-        if not self.s.routing:
-            if self.s.fixed is None:
-                yield {"type": "error", "message": "Routing is off but router.fixed has no model (set PULSEIQ8_FIXED_MODEL)"}
-                return
-            await self.installed()
-            plan, reason = [("fixed", self.s.fixed)], "routing off — fixed model"
-            if self.s.fixed.cloud and (self.s.data_policy == "local_only" or req.sensitive):
-                yield {"type": "error", "message": "The fixed model is a cloud model, which the data policy / Local only does not allow"}
-                return
-        else:
-            route = decide(req, self.task_tiers)
-            tokens = estimate_tokens(req, req.system or "")
-            chain = [route.tier] + (ESCALATION[route.tier] if (self.s.escalate if req.escalate is None else req.escalate) else [])
-            plan = [(tier, spec) for tier in chain for spec in await self.candidates(tier, req, tokens)]
-            if not plan:
-                for tier_name in self.s.tiers:
-                    if tier_name == "vision" and route.tier != "vision":
-                        continue
-                    for spec in await self.candidates(tier_name, req, tokens):
-                        if all(spec.key != p[1].key for p in plan):
-                            plan.append((tier_name, spec))
-            reason = route.reason
-        system = "\n\n".join(x for x in (req.system, privacy.INJECTION_GUARD) if x)
-        sys_extra = "\n\n".join(m.content for m in req.messages if m.role == "system")
-        if sys_extra:
-            system = sys_extra + "\n\n" + system
-        base_msgs = [m.model_dump() for m in req.messages if m.role != "system"]
-        errors = []
-        for tier, spec in plan:
-            msgs = [{**m, "content": privacy.mask(m["content"])} for m in base_msgs] if spec.cloud else base_msgs
-            usage: dict = {}
-            sent = False
-            a0 = time.monotonic()
-            try:
-                async for piece in providers.stream(self.client, self.s.providers[spec.provider], spec, system, msgs,
-                                                    max_tokens=req.max_tokens, temperature=req.temperature,
-                                                    timeout=self.s.request_timeout, usage=usage, prio=prio):
-                    if not sent:
-                        sent = True
-                        yield {"type": "meta", "tier": tier, "model": spec.model, "provider": spec.provider,
-                               "route_reason": reason if tier in ("fixed", plan[0][0]) else f"{reason}; answered by the {tier} tier",
-                               "first_token_ms": int((time.monotonic() - a0) * 1000)}
-                    yield {"type": "delta", "text": piece}
-                if not sent:
-                    raise providers.ProviderError("empty answer")
-            except (providers.ProviderError, asyncio.TimeoutError, httpx.HTTPError) as e:
-                ms = int((time.monotonic() - a0) * 1000)
-                self._failed(spec)
-                self.usage.record(req.task, tier, spec.key, False, ms, {}, str(e))
-                if sent:
-                    yield {"type": "error", "message": f"{spec.model} stopped: {str(e)[:300]}"}
-                    return
-                errors.append(f"{spec.key}: {str(e)[:300]}")
-                continue
-            ms = int((time.monotonic() - a0) * 1000)
-            self._fails[spec.key] = 0
-            self.usage.record(req.task, tier, spec.key, True, ms, usage, None)
-            yield {"type": "done", "latency_ms": int((time.monotonic() - t0) * 1000), "usage": usage}
-            return
-        yield {"type": "error", "message": "No model could answer: " + ("; ".join(errors) or "no model is available")}
-
     async def _fixed(self, req: ChatRequest, t0: float) -> ChatResponse:
         """Routing switched off: every request goes to the one configured model (router.fixed)."""
         spec = self.s.fixed
@@ -370,6 +298,7 @@ class Router:
         installed = await self.installed()
         tiers = {}
         for name, t in self.s.tiers.items():
+            
             rows = []
             for m in t.models:
                 ok, why = self.available(m, installed)

@@ -1,9 +1,7 @@
-<<<<<<< HEAD
 .venv/
 __pycache__/
 .pytest_cache/
 .env
-=======
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -227,6 +225,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
->>>>>>> a8d499660bf588875b7804e080d22533b4178bd7
-data/
-_to_delete/

@@ -138,6 +138,16 @@ class Router:
             self._installed_at = time.monotonic()
         return self._installed
 
+    async def why_none(self, tier: str) -> str:
+        """Plain reason no model of a tier could be used: Ollama unreachable, or which models are not pulled."""
+        installed = await self.installed()
+        if self.ollama_error:
+            return f"Ollama is not reachable ({self.ollama_error}). Start it: ./start.sh"
+        reasons = [f"{m.model}: {self.available(m, installed)[1]}" for m in self.s.tiers[tier].models]
+        have = ", ".join(sorted(installed)) if installed else "none"
+        return ("no model is available for this tier — " + "; ".join(r for r in reasons if not r.endswith(": "))
+                + f". Installed in Ollama: {have}")
+
     def available(self, spec: ModelSpec, installed: set[str] | None) -> tuple[bool, str]:
         p = self.s.providers[spec.provider]
         if not p.configured:
@@ -292,7 +302,7 @@ class Router:
             return ChatResponse(text=res.text, json=parsed, tier=tier, model=spec.model, provider=spec.provider,
                                 route_reason=why, latency_ms=int((time.monotonic() - t0) * 1000),
                                 attempts=attempts, usage=res.usage)
-        detail = "; ".join(f"{a.model}: {a.error}" for a in attempts) or "no model is available for this tier"
+        detail = "; ".join(f"{a.model}: {a.error}" for a in attempts) or await self.why_none(route.tier)
         raise NoModelError(f"No model could answer ({route.tier}): {detail}")
 
     async def _fixed(self, req: ChatRequest, t0: float) -> ChatResponse:
@@ -391,7 +401,7 @@ class Router:
             self.usage.record(req.task, tier, spec.key, True, ms, usage, None)
             yield {"type": "done", "latency_ms": int((time.monotonic() - t0) * 1000), "usage": usage}
             return
-        yield {"type": "error", "message": f"No model could answer ({route.tier}): " + ("; ".join(errors) or "no model is available for this tier")}
+        yield {"type": "error", "message": f"No model could answer ({route.tier}): " + ("; ".join(errors) or await self.why_none(route.tier))}
 
     def _failed(self, spec: ModelSpec) -> None:
         n = self._fails.get(spec.key, 0) + 1

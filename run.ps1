@@ -1,4 +1,4 @@
-# Runs PulseIQ8_AI on Windows without Docker (uses Ollama on localhost:11434: the Ollama app or docker-compose.ollama.yml).
+# Runs PulseIQ8_AI on Windows without Docker (uses Ollama on localhost:11434: the Ollama app or "docker compose up -d ollama").
 # Same as run.sh on macOS: creates .venv, installs requirements, loads .env and starts the service (default port 8091).
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot

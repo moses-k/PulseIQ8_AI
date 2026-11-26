@@ -1,61 +1,73 @@
-# PulseIQ8_AI in Docker.
-#   cp .env.example .env            # set PULSEIQ8_AI_KEYS (and cloud keys only if allowed)
+# PulseIQ8_AI + Ollama in one file.
 #
-# A) Ollama already running on this Mac (the Ollama app, or ~/coop/analytics/docker-compose.ollama.yml) — default:
-#   docker compose up -d --build                    # only PulseIQ8_AI; reaches Ollama at host.docker.internal:11434
+#   cp .env.example .env                      # set PULSEIQ8_AI_KEYS (and cloud keys only if allowed)
+#   docker compose up -d --build              # Ollama + both models + PulseIQ8_AI  → http://localhost:8092
+#   docker compose up -d ollama               # only Ollama (+ models); run PulseIQ8_AI on the Mac with ./start.sh
+#   docker compose logs -f ollama             # watch the model download ("Models ready: qwen3:8b" when done)
+#   docker compose down                       # stop (models stay in the volume)
 #
-# B) let this file run its own Ollama too (stop any other Ollama on port 11434 first):
-#   DOCKER_OLLAMA_URL=http://ollama:11434 docker compose --profile ollama up -d --build
-#   docker compose logs -f ollama-pull              # first run downloads the models in OLLAMA_MODELS
-#
-#   curl -H "X-Api-Key: $KEY" http://localhost:8092/v1/tiers
+# Model: qwen3:8b (~5.2 GB) is pulled on start (instant when already downloaded). To add more, list them in
+# OLLAMA_MODELS in .env (space-separated); the chat starts on PULSEIQ8_DEFAULT_MODEL (qwen3:8b).
+# Apple-silicon Macs: Docker cannot use the GPU, so models run on the CPU (slower than the Ollama app).
+# Give Docker Desktop at least 10 GB of memory (Settings → Resources). Quit the Ollama app first: both use 11434.
+name: pulseiq8
+
 services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: nexora-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    # start the server, pull the model(s) in MODELS (skipped when already in the volume; up to 5 tries each,
+    # since the registry sometimes drops the connection with 'Error: EOF'), then keep serving
+    entrypoint: ["/bin/sh", "-c", "ollama serve & pid=$$!; until ollama list >/dev/null 2>&1; do sleep 1; done; for m in $$MODELS; do for try in 1 2 3 4 5; do echo \"pulling $$m (try $$try)\"; ollama pull \"$$m\" && break; echo \"pull of $$m failed, retrying in 10s\"; sleep 10; done; done; echo \"Models ready: $$MODELS\"; wait $$pid"]
+    environment:
+      MODELS: ${OLLAMA_MODELS:-qwen3:8b}
+      # behind an office proxy / VPN: set OLLAMA_PULL_PROXY in .env (e.g. http://proxy.company:8080)
+      HTTPS_PROXY: ${OLLAMA_PULL_PROXY:-}
+      NO_PROXY: "localhost,127.0.0.1,ollama"
+      OLLAMA_KEEP_ALIVE: "30m"          # keep the models loaded between questions
+      OLLAMA_CONTEXT_LENGTH: "16384"
+      OLLAMA_NUM_PARALLEL: "1"          # one answer at a time: less memory
+      OLLAMA_MAX_LOADED_MODELS: "1"     # one model in memory at a time
+    volumes:
+      - ollama-models:/root/.ollama
+    # the download progress bar writes several log lines a second: cap the log so it can't grow without limit
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]   # healthy once the server answers (downloads may still be running)
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   pulseiq8-ai:
     build: .
     container_name: pulseiq8-ai
     restart: unless-stopped
-    ports:
-      - "${PORT:-8092}:8092"   # host port : port inside the container
-    env_file: .env
-    environment:
-      # inside the container "localhost" is the container itself, so Ollama is reached via the host
-      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_URL:-http://host.docker.internal:11434}
-      # data assistant: AnalyticsIQ running on this computer
-      ANALYTICSIQ_URL: ${DOCKER_ANALYTICSIQ_URL:-http://host.docker.internal:8090/api}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  ollama:
-    profiles: ["ollama"]
-    image: ollama/ollama:latest
-    container_name: pulseiq8-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    environment:
-      OLLAMA_KEEP_ALIVE: "30m"
-      OLLAMA_MAX_LOADED_MODELS: "2"
-      OLLAMA_NUM_PARALLEL: "1"
-    volumes:
-      - ollama-models:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-
-  # downloads the models once (space-separated list in OLLAMA_MODELS), then exits
-  ollama-pull:
-    profiles: ["ollama"]
-    image: ollama/ollama:latest
     depends_on:
       ollama:
         condition: service_healthy
+    ports:
+      - "${PORT:-8092}:8092"            # host port : port inside the container
+    env_file: .env
     environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODELS: ${OLLAMA_MODELS:-qwen3:8b deepseek-coder-v2:16b}
-    entrypoint: ["/bin/sh", "-c", "for m in $$OLLAMA_MODELS; do echo \"pulling $$m\"; ollama pull $$m || exit 1; done; echo 'models ready'"]
-    restart: "no"
+      OLLAMA_BASE_URL: http://ollama:11434                       # the ollama service above
+      PULSEIQ8_DEFAULT_MODEL: ${PULSEIQ8_DEFAULT_MODEL:-qwen3:8b}  # model the chat starts on
+      PULSEIQ8_KEYS_FILE: /app/data/keys.json
+      # data assistant: AnalyticsIQ running on this computer
+      ANALYTICSIQ_URL: ${DOCKER_ANALYTICSIQ_URL:-http://host.docker.internal:8090/api}
+    volumes:
+      - pulseiq8-ai-data:/app/data      # API keys created in the UI
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   ollama-models:
+    name: nexora-ollama_ollama-models   # the volume the models are already downloaded into
+  pulseiq8-ai-data:

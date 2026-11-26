@@ -75,8 +75,8 @@ ollama pull qwen3:8b            # Quick / Standard / Deep (add deepseek-coder-v2
 
 **Ollama only, in Docker** (when you don't use the Ollama app; quit the app first, both use port 11434):
 ```bash
-docker compose -f docker-compose.ollama.yml up -d          # Ollama + downloads OLLAMA_MODELS (default qwen3:8b)
-docker compose -f docker-compose.ollama.yml logs -f ollama
+docker compose up -d ollama                                # Ollama + downloads OLLAMA_MODELS (qwen3:8b)
+docker compose logs -f ollama
 ./run.sh                                                   # PulseIQ8_AI on the Mac, talking to it on localhost:11434
 ```
 Docker on Apple silicon has no GPU access, so the Ollama app answers much faster; Docker needs about 12 GB of memory.

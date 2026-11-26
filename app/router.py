@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -435,4 +436,6 @@ class Router:
                                                            "reason": self.available(fixed, installed)[1]},
                 "ollama_reachable": installed is not None, "ollama_url": ollama.base_url if ollama else None,
                 "ollama_error": self.ollama_error, "ollama_models": sorted(installed or []),
-                "data_policy": self.s.data_policy, "tiers": tiers}
+                "data_policy": self.s.data_policy, "tiers": tiers,
+                # the model the chat starts on; users can pick any other installed model
+                "default_model": os.getenv("PULSEIQ8_DEFAULT_MODEL", "qwen3:8b").strip() or "qwen3:8b"}

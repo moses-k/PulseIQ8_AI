@@ -295,7 +295,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
   };
   const state = {
     chats: store.get('chats', []), projects: store.get('projects', []), current: null, project: null,
-    tier: store.get('tier', 'auto'), model: store.get('model', ''), effort: store.get('effort', 'medium'), mode: store.get('mode', 'chat'),
+    tier: store.get('tier', 'auto'), model: store.get('model', null),   // null = not chosen yet → the server's default model effort: store.get('effort', 'medium'), mode: store.get('mode', 'chat'),
     local: store.get('local', true), open: store.get('open', { pinned: true, projects: true, recents: true }),
     expanded: store.get('expanded', {}), temp: false, tempChat: null, attach: [], busy: null, status: null,
   };
@@ -555,6 +555,8 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
   const tierModel = (id) => { const t = state.status && state.status.tiers && state.status.tiers[id]; const m = t && t.models.find((x) => x.available); return m ? m.model : ''; };
   function renderPick() {
     const s = state.status, off = s && s.routing === false;
+    // first visit (nothing chosen yet): start on the server's default model (qwen3:8b) once it is installed
+    if (state.model === null && s && s.default_model && (s.ollama_models || []).includes(s.default_model)) state.model = s.default_model;
     if (state.model && s && !(s.ollama_models || []).includes(state.model)) { state.model = ''; store.set('model', ''); }   // uninstalled since
     const tier = state.mode === 'code' && state.tier === 'auto' ? 'coding' : state.tier;
     $('pickName').textContent = state.model ? state.model
@@ -577,7 +579,7 @@ main{display:flex;flex-direction:column;min-width:0;height:100%;position:relativ
         return `<button type="button" data-tier="${t.id}"><span class="tick">${!state.model && t.id === state.tier ? '✓' : ''}</span><span><b>${esc(t.name)}${ready ? '' : ' <span style="color:var(--bad);font-weight:400">· no model</span>'}</b><small>${esc(t.desc)}${uses ? ' · ' + esc(uses) : ''}</small></span></button>`; }).join('');
     const installed = (s && s.ollama_models) || [];
     const models = installed.length ? `<hr><div class="mh">Installed models</div>` + installed.map((m) =>
-      `<button type="button" data-model="${esc(m)}"><span class="tick">${state.model === m ? '✓' : ''}</span><span><b>${esc(m)}</b><small>Always answer with this model</small></span></button>`).join('') : '';
+      `<button type="button" data-model="${esc(m)}"><span class="tick">${state.model === m ? '✓' : ''}</span><span><b>${esc(m)}${s && s.default_model === m ? ' <span style="font-weight:400;opacity:.7">· default</span>' : ''}</b><small>Always answer with this model</small></span></button>`).join('') : '';
     const effort = Object.entries(EFFORT).map(([k, v]) => `<button type="button" data-effort="${k}"><span class="tick">${k === state.effort ? '✓' : ''}</span><span><b>${v.name}</b><small>${k === 'low' ? 'Short answers, fastest' : k === 'medium' ? 'Balanced' : 'Longer, more thorough answers'}</small></span></button>`).join('');
     showMenu(`<div class="mh">Mode</div>${tiers}${models}<hr><div class="mh">Effort</div>${effort}<hr>
       <button type="button" data-local="1"><span class="tick">${state.local ? '✓' : ''}</span><span><b>Local models only</b><small>Never send this chat to a cloud provider</small></span></button>`, $('pickBtn'), (b) => {
